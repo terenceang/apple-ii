@@ -22,6 +22,14 @@ let lastDiskTrack = -1;
 let motorHoldFrames = 0;
 const MOTOR_HOLD_FRAMES = 8;
 
+// Real Disk II boots (this DOS 3.3 System Master disk in particular) can take
+// well over a minute of real 1MHz Apple II time. While the drive motor is
+// spinning, run extra emulated frames per timer tick so disk activity
+// fast-forwards; video/audio for the skipped frames is simply discarded
+// (only the last frame in the batch is ever shown/heard), so this only
+// affects wall-clock time, not the emulated CPU's behavior.
+const FAST_FORWARD_EXTRA_FRAMES = 8;
+
 function post(message: WorkerToHostMessage, transfer?: Transferable[]): void {
   if (transfer) self.postMessage(message, transfer);
   else self.postMessage(message);
@@ -29,6 +37,10 @@ function post(message: WorkerToHostMessage, transfer?: Transferable[]): void {
 
 function tick(): void {
   try {
+    for (let i = 0; i < FAST_FORWARD_EXTRA_FRAMES && machine.disk.isMotorOn; i++) {
+      machine.runFrame();
+      machine.getStereoAudioSamples(SAMPLES_PER_FRAME); // discard; keeps speaker edge log from bleeding across frames
+    }
     machine.runFrame();
     const { pixels, width, height } = machine.getFrameBuffer();
     const audio = machine.getStereoAudioSamples(SAMPLES_PER_FRAME);
