@@ -83,14 +83,6 @@ export class DiskII {
   private selectedDrive = 0;
   private q7 = false;
   private motorRanThisFrame = false;
-  /**
-   * DOS 3.3's boot0 (loaded to $0800) reads track 0 sectors 9 down to 1 into
-   * pages $0900 down to $0100 by repeatedly jumping into the boot PROM's
-   * BTRDSEC routine (at $Cs5C, see attach() below) and back. Real hardware
-   * tracks that destination page inside the PROM itself; boot0 never passes
-   * it explicitly, so we mirror that state here rather than in CPU registers.
-   */
-  private bootReadPage = 9;
 
   get isMotorOn(): boolean {
     return this.drives[this.selectedDrive]!.motorOn;
@@ -151,7 +143,6 @@ export class DiskII {
     if (!image) return false;
     const sector0 = image.tracks[0]!.subarray(0, SECTOR_SIZE);
     for (let i = 0; i < sector0.length; i++) memory.write(0x0800 + i, sector0[i]!);
-    this.bootReadPage = 9;
     return true;
   }
 
@@ -317,19 +308,21 @@ export class DiskII {
 
     // BTRDSEC: boot0's own "read the next boot1 sector" entry point, always
     // at $Cs5C (s = slot). boot0 leaves the target physical sector in zero
-    // page $3D and expects this routine to read track 0 of that sector into
-    // the next lower page (9 down to 1), then jump back to $0801. Real
-    // hardware does this via the raw nibble latch; we take the same direct-
-    // sector-image shortcut as the initial boot-sector load above.
+    // page $3D and the target destination page in zero page $27 (it computes
+    // this itself, starting from the sector-0 payload's own $08FE/$08FF
+    // bytes, and decrements it each iteration — see BOOT1 disassembly at
+    // https://6502disassembly.com/a2-boot/BOOT1.html), then expects this
+    // routine to read track 0 of that sector into that page and jump back to
+    // $0801. Real hardware does this via the raw nibble latch; we take the
+    // same direct-sector-image shortcut as the initial boot-sector load above.
     memory.registerSlotOverlayRead(0xc65c, () => {
       const image = this.getDisk(0);
       if (image) {
         const sector = memory.read(0x3d);
         const track0 = image.tracks[0]!;
         const src = track0.subarray(sector * SECTOR_SIZE, (sector + 1) * SECTOR_SIZE);
-        const destBase = this.bootReadPage * 0x100;
+        const destBase = memory.read(0x27) * 0x100;
         for (let i = 0; i < src.length; i++) memory.write(destBase + i, src[i]!);
-        this.bootReadPage--;
       }
       return 0x4c; // JMP — first byte
     });

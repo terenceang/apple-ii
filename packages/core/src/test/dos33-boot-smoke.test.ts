@@ -18,9 +18,12 @@ describe.skipIf(!haveFixtures)("DOS 3.3 boot smoke test — real ROM + real disk
     for (let i = 0; i < 60; i++) machine.runFrame();
 
     expect(machine.disk.isMotorOn).toBe(true);
-    // Page $0900 is the first bootstrap page boot0 loads via BTRDSEC — nonzero
-    // here means the boot PROM's slot-16/BTRDSEC handoff (see diskII.ts) is
-    // working, not just the initial sector-0 shortcut.
-    expect(machine.memory.read(0x0900)).not.toBe(0);
+    // boot0 computes its first BTRDSEC destination page from this disk's own
+    // sector-0 payload ($08FE + $08FF = $36 + $09 = $3F) and stores it in
+    // zero page $27 right before each call — see BOOT1 disassembly at
+    // https://6502disassembly.com/a2-boot/BOOT1.html. Nonzero here means the
+    // boot PROM's slot-16/BTRDSEC handoff (see diskII.ts) is working, not
+    // just the initial sector-0 shortcut.
+    expect(machine.memory.read(0x3f00)).not.toBe(0);
   });
 });
