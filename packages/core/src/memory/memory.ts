@@ -25,9 +25,18 @@ export type IoWriteHandler = (addr: number, value: number) => void;
  * to $0400-$07FF and $0800-$0BFF (text pages) are automatically routed to
  * aux memory. RAMRD/RAMWRT provide general-purpose read/write routing for
  * the $0200-$BFFF range, and ALTZP switches zero-page ($00-$FF) and stack
- * ($0100-$01FF) to aux. INTCXROM/SLOTC3ROM are not implemented — no card
- * ROMs are emulated, so $C100-$CFFF always reads the motherboard ROM's own
- * content there, except where a slot overlay has been installed.
+ * ($0100-$01FF) to aux.
+ *
+ * INTCXROM ($C006/$C007) is implemented: when off (the reset default, and
+ * real hardware's default), $C100-$CFFF shows a slot overlay if one is
+ * installed there (e.g. the Disk II boot stub) or open bus otherwise — never
+ * the motherboard ROM's own content, which would let arbitrary ROM bytes
+ * masquerade as a peripheral card. When on, the motherboard ROM shows
+ * through across the whole range regardless of any overlay, matching real
+ * hardware (internal ROM shadows every slot while enabled). $C300-$C3FF is
+ * additionally always internal ROM regardless of INTCXROM — real hardware's
+ * SLOTC3ROM switch defaults to (and this emulator never leaves) "main ROM
+ * for $C300-$C3FF" since no slot 3 card is ever emulated to compete for it.
  */
 export class Memory implements Bus {
   readonly ram = new Uint8Array(0x10000);
@@ -49,6 +58,7 @@ export class Memory implements Bus {
   private ramrd = false;
   private ramwrt = false;
   private altzp = false;
+  private intCxRom = false;
 
   private readonly ioReaders = new Array<IoReadHandler | undefined>(256);
   private readonly ioWriters = new Array<IoWriteHandler | undefined>(256);
@@ -112,8 +122,8 @@ export class Memory implements Bus {
     setWrite(0x03, () => (this.ramrd = true));
     setWrite(0x04, () => (this.ramwrt = false));
     setWrite(0x05, () => (this.ramwrt = true));
-    setWrite(0x06, () => {});
-    setWrite(0x07, () => {});
+    setWrite(0x06, () => (this.intCxRom = false));
+    setWrite(0x07, () => (this.intCxRom = true));
     setWrite(0x08, () => (this.altzp = false));
     setWrite(0x09, () => (this.altzp = true));
     this.registerIoRead(0x13, () => (this.ramrd ? 0x80 : 0));
@@ -131,6 +141,7 @@ export class Memory implements Bus {
     this.ramrd = false;
     this.ramwrt = false;
     this.altzp = false;
+    this.intCxRom = false;
   }
 
   private handleLcSoftSwitch(addr: number, isWrite: boolean): void {
@@ -195,11 +206,12 @@ export class Memory implements Bus {
       return handler ? handler(addr) : 0;
     }
     if (addr < 0xd000) {
+      if (this.intCxRom || (addr >= 0xc300 && addr < 0xc400)) return this.rom[addr - 0xc000]!;
       const overlayReader = this.slotOverlayReaders.get(addr);
       if (overlayReader) return overlayReader(addr);
       const overlayByte = this.slotOverlay.get(addr);
       if (overlayByte !== undefined) return overlayByte;
-      return this.rom[addr - 0xc000]!;
+      return 0x00; // open bus: no card in this slot
     }
     if (addr < 0xe000) {
       if (this.lcReadRam) {
@@ -214,7 +226,7 @@ export class Memory implements Bus {
 
   /** Serializes everything a save-state needs: main RAM, aux RAM, LC RAM banks, LC + aux soft-switch state. */
   serialize(): Uint8Array {
-    const out = new Uint8Array(0x10000 + 0x10000 + 0x1000 + 0x1000 + LC_UPPER_SIZE + 8);
+    const out = new Uint8Array(0x10000 + 0x10000 + 0x1000 + 0x1000 + LC_UPPER_SIZE + 9);
     let offset = 0;
     out.set(this.ram, offset);
     offset += 0x10000;
@@ -234,6 +246,7 @@ export class Memory implements Bus {
     out[offset++] = this.ramrd ? 1 : 0;
     out[offset++] = this.ramwrt ? 1 : 0;
     out[offset++] = this.altzp ? 1 : 0;
+    out[offset++] = this.intCxRom ? 1 : 0;
     return out;
   }
 
@@ -266,6 +279,8 @@ export class Memory implements Bus {
       this.ramwrt = false;
       this.altzp = false;
     }
+    // v3: INTCXROM (present in new save states, absent in v1/v2)
+    this.intCxRom = offset < data.length ? data[offset++] === 1 : false;
   }
 
   write(addr: number, value: number): void {

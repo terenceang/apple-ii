@@ -13,7 +13,7 @@ describe("Memory (Apple //e MMU)", () => {
     combined.fill(0x11, 0, ROM_SIZE); // first half: should be ignored
     combined.fill(0x22, ROM_SIZE); // second half: the real ROM
     mem.loadRom(combined);
-    expect(mem.read(0xc100)).toBe(0x22);
+    expect(mem.read(0xd000)).toBe(0x22);
     expect(mem.read(0xffff)).toBe(0x22);
   });
 
@@ -30,14 +30,29 @@ describe("Memory (Apple //e MMU)", () => {
     expect(() => mem.loadRom(new Uint8Array(100))).toThrow();
   });
 
-  it("reads the $C100-$CFFF slot ROM window straight from the ROM image", () => {
+  it("reads the $C100-$CFFF slot ROM window as open bus by default, straight ROM once INTCXROM is on", () => {
     const mem = new Memory();
+    mem.attach();
     const rom = makeRom(0x00);
     rom[0x100] = 0x11; // $C100
     rom[0xfff] = 0x22; // $CFFF
     mem.loadRom(rom);
+    // No card in any slot, and INTCXROM off (the reset default): open bus.
+    expect(mem.read(0xc100)).toBe(0x00);
+    expect(mem.read(0xcfff)).toBe(0x00);
+    // INTCXROM on ($C007): motherboard ROM shadows the whole window.
+    mem.write(0xc007, 0);
     expect(mem.read(0xc100)).toBe(0x11);
     expect(mem.read(0xcfff)).toBe(0x22);
+  });
+
+  it("$C300-$C3FF always reads straight ROM — no slot 3 card is ever emulated", () => {
+    const mem = new Memory();
+    mem.attach();
+    const rom = makeRom(0x00);
+    rom[0x300] = 0x33; // $C300
+    mem.loadRom(rom);
+    expect(mem.read(0xc300)).toBe(0x33);
   });
 
   it("reads ROM at $D000-$FFFF by default after reset", () => {
