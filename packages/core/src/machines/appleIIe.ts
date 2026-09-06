@@ -36,6 +36,7 @@ export class AppleIIe {
 
   private flashCounter = 0;
   private frameCycles = 0;
+  private totalCycles = 0;
 
   constructor() {
     this.memory.attach();
@@ -47,7 +48,7 @@ export class AppleIIe {
     };
     this.speaker.attach(this.memory);
     this.disk.attach(this.memory);
-    this.paddle.attach(this.memory, () => this.frameCycles);
+    this.paddle.attach(this.memory, () => this.totalCycles);
   }
 
   loadRom(bytes: Uint8Array): void {
@@ -58,6 +59,8 @@ export class AppleIIe {
     this.memory.reset();
     this.cpu.reset();
     this.speaker.reset();
+    this.keyboard.reset();
+    this.totalCycles = 0;
     this.disk.turnOffMotor();
     const resetVector = this.memory.read(0xfffc) | (this.memory.read(0xfffd) << 8);
     // If running with a non-autostart test ROM (e.g. mock NOP ROM used in unit tests),
@@ -67,12 +70,16 @@ export class AppleIIe {
     }
   }
 
-  insertDisk(image: DiskImage): void {
-    this.disk.insertDisk(image);
+  insertDisk(image: DiskImage, drive = 0): void {
+    this.disk.insertDisk(image, drive);
   }
 
-  ejectDisk(): DiskImage | null {
-    return this.disk.ejectDisk();
+  ejectDisk(drive?: number): DiskImage | null {
+    return this.disk.ejectDisk(drive);
+  }
+
+  getDisk(drive = 0): DiskImage | null {
+    return this.disk.getDisk(drive);
   }
 
   runFrame(): void {
@@ -80,7 +87,10 @@ export class AppleIIe {
     this.disk.resetMotorActivity();
     while (this.frameCycles < CYCLES_PER_FRAME) {
       this.speaker.currentCycle = this.frameCycles;
-      this.frameCycles += this.cpu.step();
+      const stepCycles = this.cpu.step();
+      this.frameCycles += stepCycles;
+      this.totalCycles += stepCycles;
+      this.keyboard.step(stepCycles);
     }
     this.flashCounter = (this.flashCounter + 1) % (FLASH_HALF_PERIOD_FRAMES * 2);
   }

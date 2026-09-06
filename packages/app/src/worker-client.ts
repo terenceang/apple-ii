@@ -26,7 +26,7 @@ export class EmulatorClient {
 
   onReady?: () => void;
   onError?: (message: string) => void;
-  onDiskStatus?: (status: { inserted: boolean; motorOn: boolean; track: number }) => void;
+  onDiskStatus?: (status: { drive: number; inserted: boolean; motorOn: boolean; track: number }) => void;
 
   constructor() {
     this.worker = new Worker(new URL("../../worker/src/emulator.worker.ts", import.meta.url), {
@@ -54,6 +54,7 @@ export class EmulatorClient {
       else if (message.type === "error") this.onError?.(message.message);
       else if (message.type === "diskStatus") {
         this.onDiskStatus?.({
+          drive: message.drive,
           inserted: message.inserted,
           motorOn: message.motorOn,
           track: message.track,
@@ -83,12 +84,12 @@ export class EmulatorClient {
     this.send({ type: "loadRom", rom }, [rom]);
   }
 
-  loadDisk(format: DiskFormat, data: ArrayBuffer): void {
-    this.send({ type: "loadDisk", format, data }, [data]);
+  loadDisk(format: DiskFormat, data: ArrayBuffer, drive = 0): void {
+    this.send({ type: "loadDisk", format, data, drive }, [data]);
   }
 
-  ejectDisk(): void {
-    this.send({ type: "ejectDisk" });
+  ejectDisk(drive = 0): void {
+    this.send({ type: "ejectDisk", drive });
   }
 
   sendKey(ascii: number, down: boolean): void {

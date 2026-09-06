@@ -51,6 +51,23 @@ describe("AppleIIe machine", () => {
     machine.memory.read(0xc010);
     expect(machine.memory.read(0xc000)).toBe(0x41);
   });
+
+  it("supports inserting and ejecting disk in drive 2 independently", () => {
+    const machine = new AppleIIe();
+    const disk1 = parseDsk(new Uint8Array(DISK_IMAGE_SIZE), "po");
+    const disk2 = parseDsk(new Uint8Array(DISK_IMAGE_SIZE), "po");
+    machine.insertDisk(disk1, 0);
+    machine.insertDisk(disk2, 1);
+
+    expect(machine.getDisk(0)).toBe(disk1);
+    expect(machine.getDisk(1)).toBe(disk2);
+    expect(machine.disk.hasDriveMotorActivity(0)).toBe(false);
+    expect(machine.disk.hasDriveMotorActivity(1)).toBe(false);
+
+    machine.ejectDisk(1);
+    expect(machine.getDisk(0)).toBe(disk1);
+    expect(machine.getDisk(1)).toBeNull();
+  });
 });
 
 describe("save state", () => {

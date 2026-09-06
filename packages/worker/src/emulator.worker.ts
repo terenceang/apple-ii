@@ -16,10 +16,17 @@ let frameWriter: FrameRingWriter | null = null;
 let audioRing: AudioRing | null = null;
 let running = false;
 let timer: ReturnType<typeof setInterval> | null = null;
-let lastDiskMotor = false;
-let lastDiskInserted = false;
-let lastDiskTrack = -1;
-let motorHoldFrames = 0;
+interface DriveReportState {
+  inserted: boolean;
+  motorOn: boolean;
+  track: number;
+  motorHoldFrames: number;
+}
+
+const driveReports: [DriveReportState, DriveReportState] = [
+  { inserted: false, motorOn: false, track: -1, motorHoldFrames: 0 },
+  { inserted: false, motorOn: false, track: -1, motorHoldFrames: 0 },
+];
 const MOTOR_HOLD_FRAMES = 8;
 
 // Real Disk II boots (this DOS 3.3 System Master disk in particular) can take
@@ -45,20 +52,23 @@ function tick(): void {
     const { pixels, width, height } = machine.getFrameBuffer();
     const audio = machine.getStereoAudioSamples(SAMPLES_PER_FRAME);
 
-    const inserted = machine.disk.getDisk(0) !== null;
-    const rawMotorOn = machine.disk.hasMotorActivity;
-    if (rawMotorOn) {
-      motorHoldFrames = MOTOR_HOLD_FRAMES;
-    } else if (motorHoldFrames > 0) {
-      motorHoldFrames--;
-    }
-    const motorOn = rawMotorOn || motorHoldFrames > 0;
-    const track = machine.disk.currentTrack;
-    if (inserted !== lastDiskInserted || motorOn !== lastDiskMotor || track !== lastDiskTrack) {
-      lastDiskInserted = inserted;
-      lastDiskMotor = motorOn;
-      lastDiskTrack = track;
-      post({ type: "diskStatus", inserted, motorOn, track });
+    for (let d = 0; d < 2; d++) {
+      const rep = driveReports[d]!;
+      const inserted = machine.disk.getDisk(d) !== null;
+      const rawMotorOn = machine.disk.hasDriveMotorActivity(d);
+      if (rawMotorOn) {
+        rep.motorHoldFrames = MOTOR_HOLD_FRAMES;
+      } else if (rep.motorHoldFrames > 0) {
+        rep.motorHoldFrames--;
+      }
+      const motorOn = rawMotorOn || rep.motorHoldFrames > 0;
+      const track = machine.disk.getDriveTrack(d);
+      if (inserted !== rep.inserted || motorOn !== rep.motorOn || track !== rep.track) {
+        rep.inserted = inserted;
+        rep.motorOn = motorOn;
+        rep.track = track;
+        post({ type: "diskStatus", drive: d, inserted, motorOn, track });
+      }
     }
 
     if (frameWriter && audioRing) {
@@ -108,27 +118,32 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
       break;
     }
     case "loadDisk": {
+      const drive = message.drive ?? 0;
       const bytes = new Uint8Array(message.data);
       const disk = parseDsk(bytes, message.format);
-      machine.insertDisk(disk);
-      lastDiskInserted = true;
-      lastDiskMotor = machine.disk.isMotorOn;
-      lastDiskTrack = machine.disk.currentTrack;
+      machine.insertDisk(disk, drive);
+      const rep = driveReports[drive]!;
+      rep.inserted = true;
+      rep.motorOn = machine.disk.isDriveMotorOn(drive);
+      rep.track = machine.disk.getDriveTrack(drive);
       post({
         type: "diskStatus",
+        drive,
         inserted: true,
-        motorOn: lastDiskMotor,
-        track: lastDiskTrack,
+        motorOn: rep.motorOn,
+        track: rep.track,
       });
       break;
     }
     case "ejectDisk": {
-      machine.ejectDisk();
-      motorHoldFrames = 0;
-      lastDiskInserted = false;
-      lastDiskMotor = false;
-      lastDiskTrack = 0;
-      post({ type: "diskStatus", inserted: false, motorOn: false, track: 0 });
+      const drive = message.drive ?? 0;
+      machine.ejectDisk(drive);
+      const rep = driveReports[drive]!;
+      rep.motorHoldFrames = 0;
+      rep.inserted = false;
+      rep.motorOn = false;
+      rep.track = 0;
+      post({ type: "diskStatus", drive, inserted: false, motorOn: false, track: 0 });
       break;
     }
     case "keyEvent": {
@@ -153,16 +168,20 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
     }
     case "reset": {
       machine.reset();
-      motorHoldFrames = 0;
-      lastDiskInserted = machine.disk.getDisk(0) !== null;
-      lastDiskMotor = false;
-      lastDiskTrack = machine.disk.currentTrack;
-      post({
-        type: "diskStatus",
-        inserted: lastDiskInserted,
-        motorOn: false,
-        track: lastDiskTrack,
-      });
+      for (let d = 0; d < 2; d++) {
+        const rep = driveReports[d]!;
+        rep.motorHoldFrames = 0;
+        rep.inserted = machine.disk.getDisk(d) !== null;
+        rep.motorOn = false;
+        rep.track = machine.disk.getDriveTrack(d);
+        post({
+          type: "diskStatus",
+          drive: d,
+          inserted: rep.inserted,
+          motorOn: false,
+          track: rep.track,
+        });
+      }
       start();
       break;
     }

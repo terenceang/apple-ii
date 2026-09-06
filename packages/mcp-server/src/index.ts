@@ -106,21 +106,27 @@ server.registerTool(
   "insert_disk",
   {
     title: "Insert disk",
-    description: "Inserts a .dsk or .po floppy disk image into the Disk II drive.",
-    inputSchema: { path: z.string(), ...instanceIdSchema },
+    description: "Inserts a .dsk or .po floppy disk image into the Disk II drive (drive 1 or 2).",
+    inputSchema: {
+      path: z.string(),
+      drive: z.number().int().min(1).max(2).optional().default(1),
+      ...instanceIdSchema,
+    },
   },
-  async ({ path, instanceId }) => {
+  async ({ path, drive = 1, instanceId }) => {
     const format = detectDiskFormat(path);
     const target = resolveInstance(instanceId);
     if (target) {
       const dataBase64 = readFileSync(path).toString("base64");
-      await callInstance(target, "loadDisk", { format, dataBase64 });
-      return { content: [{ type: "text", text: `Inserted disk "${path}" into instance "${target}".` }] };
+      await callInstance(target, "loadDisk", { format, dataBase64, drive });
+      return {
+        content: [{ type: "text", text: `Inserted disk "${path}" into drive ${drive} on instance "${target}".` }],
+      };
     }
     const m = requireMachine();
     const bytes = new Uint8Array(readFileSync(path));
-    m.insertDisk(parseDsk(bytes, format));
-    return { content: [{ type: "text", text: `Inserted disk "${path}".` }] };
+    m.insertDisk(parseDsk(bytes, format), drive - 1);
+    return { content: [{ type: "text", text: `Inserted disk "${path}" into drive ${drive}.` }] };
   },
 );
 
@@ -128,17 +134,20 @@ server.registerTool(
   "eject_disk",
   {
     title: "Eject disk",
-    description: "Ejects the floppy disk from the Disk II drive.",
-    inputSchema: instanceIdSchema,
+    description: "Ejects the floppy disk from the Disk II drive (drive 1 or 2).",
+    inputSchema: {
+      drive: z.number().int().min(1).max(2).optional().default(1),
+      ...instanceIdSchema,
+    },
   },
-  async ({ instanceId }) => {
+  async ({ drive = 1, instanceId }) => {
     const target = resolveInstance(instanceId);
     if (target) {
-      await callInstance(target, "ejectDisk");
-      return { content: [{ type: "text", text: `Ejected disk on instance "${target}".` }] };
+      await callInstance(target, "ejectDisk", { drive });
+      return { content: [{ type: "text", text: `Ejected disk from drive ${drive} on instance "${target}".` }] };
     }
-    requireMachine().ejectDisk();
-    return { content: [{ type: "text", text: "Disk ejected." }] };
+    requireMachine().ejectDisk(drive - 1);
+    return { content: [{ type: "text", text: `Disk ejected from drive ${drive}.` }] };
   },
 );
 

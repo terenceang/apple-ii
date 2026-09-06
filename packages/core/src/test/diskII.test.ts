@@ -275,6 +275,12 @@ describe("DiskII controller", () => {
     memory.read(0xc0eb); // select drive 1
     expect(disk.currentTrack).toBe(0);
     expect(disk.isMotorOn).toBe(false); // drive 1 motor is independent
+    expect(disk.getDriveTrack(0)).toBe(2);
+    expect(disk.getDriveTrack(1)).toBe(0);
+    expect(disk.isDriveMotorOn(0)).toBe(true);
+    expect(disk.isDriveMotorOn(1)).toBe(false);
+    expect(disk.hasDriveMotorActivity(0)).toBe(true);
+    expect(disk.hasDriveMotorActivity(1)).toBe(false);
 
     // Drive 0 track is preserved
     memory.read(0xc0ea); // select drive 0 again

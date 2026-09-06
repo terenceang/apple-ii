@@ -15,8 +15,8 @@ export type BridgeCommand =
   | { reqId: string; cmd: "saveSnapshot" }
   | { reqId: string; cmd: "loadRom"; romBase64: string }
   | { reqId: string; cmd: "loadSnapshot"; dataBase64: string }
-  | { reqId: string; cmd: "loadDisk"; format: DiskFormat; dataBase64: string }
-  | { reqId: string; cmd: "ejectDisk" }
+  | { reqId: string; cmd: "loadDisk"; format: DiskFormat; dataBase64: string; drive?: number }
+  | { reqId: string; cmd: "ejectDisk"; drive?: number }
   | { reqId: string; cmd: "reset" }
   | { reqId: string; cmd: "keyEvent"; ascii: number; down: boolean }
   | { reqId: string; cmd: "typeText"; text: string };

@@ -34,7 +34,7 @@ export class Paddle {
 
   private readPaddle(index: number): number {
     const elapsed = this.getCycle() - this.timerStartCycle[index]!;
-    return elapsed < this.value[index]! * CYCLES_PER_UNIT ? 0x80 : 0;
+    return elapsed >= 0 && elapsed < this.value[index]! * CYCLES_PER_UNIT ? 0x80 : 0;
   }
 
   /** `value` is 0-255 (analog position), `index` is 0-3. */

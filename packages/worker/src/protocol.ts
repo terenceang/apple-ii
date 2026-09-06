@@ -5,8 +5,8 @@ export type { DiskFormat };
 export type HostToWorkerMessage =
   | { type: "init"; frameBuffer: SharedArrayBuffer | null; audioBuffer: SharedArrayBuffer | null }
   | { type: "loadRom"; rom: ArrayBuffer }
-  | { type: "loadDisk"; format: DiskFormat; data: ArrayBuffer }
-  | { type: "ejectDisk" }
+  | { type: "loadDisk"; format: DiskFormat; data: ArrayBuffer; drive?: number }
+  | { type: "ejectDisk"; drive?: number }
   | { type: "keyEvent"; ascii: number; down: boolean }
   | { type: "paddleEvent"; index: number; value: number }
   | { type: "paddleButton"; index: number; down: boolean }
@@ -20,7 +20,7 @@ export type HostToWorkerMessage =
 export type WorkerToHostMessage =
   | { type: "ready" }
   | { type: "frame"; pixels: ArrayBuffer; width: number; height: number; audio: ArrayBuffer }
-  | { type: "diskStatus"; inserted: boolean; motorOn: boolean; track: number }
+  | { type: "diskStatus"; drive: number; inserted: boolean; motorOn: boolean; track: number }
   | { type: "error"; message: string }
   | { type: "stateData"; data: ArrayBuffer };
 

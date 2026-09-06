@@ -78,6 +78,42 @@
           </button>
         </div>
 
+        <div id="floppy-drive-section-2" class="floppy-drive-section">
+          <div class="floppy-drive-header">
+            <span class="section-label">DISK II — DRIVE 2</span>
+            <span id="floppy-led-2" class="drive-led" title="Drive Activity"></span>
+          </div>
+          <div class="floppy-drive-status">
+            <span id="floppy-status-text-2">No disk inserted</span>
+          </div>
+          <div class="floppy-drive-controls">
+            <label class="control-file-btn" for="disk-file-input-2" title="Insert Floppy Disk into Drive 2 (.dsk, .po)">
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+              </svg>
+              <span id="disk-file-text-2">Insert Disk…</span>
+              <input id="disk-file-input-2" type="file" accept=".dsk,.po" />
+            </label>
+            <button id="disk-eject-btn-2" class="btn" type="button" title="Eject disk" disabled>
+              <span>Eject</span>
+            </button>
+          </div>
+          <button id="disk-export-btn-2" class="btn" type="button" title="Export current disk image" disabled>
+            <span>Export Disk…</span>
+          </button>
+        </div>
+
         <div class="tape-library-section">
           <div class="tape-library-header">
             <span class="tape-library-title">Disk Library</span>
@@ -425,15 +461,16 @@
     <div id="confirm-load-modal" class="modal-overlay" style="display: none">
       <div class="modal">
         <div class="modal-header">
-          <h2 class="modal-title">Replace Disk</h2>
+          <h2 class="modal-title">Insert Disk</h2>
           <p class="modal-subtitle" id="confirm-load-name"></p>
         </div>
         <div class="modal-body">
-          <p class="confirm-load-text">This will eject the disk currently in the drive.</p>
+          <p class="confirm-load-text" id="confirm-load-text">Select drive to insert disk into:</p>
         </div>
         <div class="modal-footer">
           <button id="confirm-load-cancel" class="btn" type="button">Cancel</button>
-          <button id="confirm-load-play" class="btn btn-accent" type="button">Replace</button>
+          <button id="confirm-load-play" class="btn btn-accent" type="button">Drive 1</button>
+          <button id="confirm-load-drive2" class="btn btn-secondary" type="button">Drive 2</button>
         </div>
       </div>
     </div>
@@ -452,7 +489,9 @@
         <div class="screen-toolbar">
           <div class="screen-drive-indicator" title="Disk Drive Activity">
             <span id="screen-floppy-led" class="drive-led"></span>
-            <span class="section-label">DRIVE</span>
+            <span class="section-label">DRV 1</span>
+            <span id="screen-floppy-led-2" class="drive-led" style="margin-left: 0.35rem"></span>
+            <span class="section-label">DRV 2</span>
           </div>
 
           <button id="pause-btn" class="btn" type="button" title="Pause emulation" aria-label="Pause/Resume">

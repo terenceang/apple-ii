@@ -55,6 +55,7 @@ interface DriveState {
   halfTrack: number;
   lastActivePhase: number;
   motorOn: boolean;
+  motorRanThisFrame: boolean;
   headPos: number;
   currentLayout: TrackLayout | null;
   currentLayoutTrack: number;
@@ -67,6 +68,7 @@ function createDriveState(): DriveState {
     halfTrack: 0,
     lastActivePhase: -1,
     motorOn: false,
+    motorRanThisFrame: false,
     headPos: 0,
     currentLayout: null,
     currentLayoutTrack: -1,
@@ -99,6 +101,7 @@ export class DiskII {
 
   resetMotorActivity(): void {
     this.motorRanThisFrame = false;
+    for (const d of this.drives) d.motorRanThisFrame = false;
   }
 
   get currentTrack(): number {
@@ -109,8 +112,29 @@ export class DiskII {
     return this.drives[this.selectedDrive]!.image?.writeProtected ?? false;
   }
 
+  get selectedDriveIndex(): number {
+    return this.selectedDrive;
+  }
+
+  isDriveMotorOn(drive: number): boolean {
+    return this.drives[drive]?.motorOn ?? false;
+  }
+
+  hasDriveMotorActivity(drive: number): boolean {
+    const d = this.drives[drive];
+    return d ? (d.motorOn || d.motorRanThisFrame) : false;
+  }
+
+  getDriveTrack(drive: number): number {
+    const d = this.drives[drive];
+    return d ? Math.floor(d.halfTrack / 2) : 0;
+  }
+
   turnOffMotor(): void {
-    for (const d of this.drives) d.motorOn = false;
+    for (const d of this.drives) {
+      d.motorOn = false;
+      d.motorRanThisFrame = false;
+    }
     this.motorRanThisFrame = false;
   }
 
@@ -122,12 +146,14 @@ export class DiskII {
   }
 
   ejectDisk(drive?: number): DiskImage | null {
-    const d = this.drives[drive ?? this.selectedDrive]!;
+    const targetDrive = drive ?? this.selectedDrive;
+    const d = this.drives[targetDrive]!;
     const image = d.image;
     d.image = null;
     d.currentLayout = null;
     d.motorOn = false;
-    this.motorRanThisFrame = false;
+    d.motorRanThisFrame = false;
+    this.motorRanThisFrame = this.drives.some((drv) => drv.motorRanThisFrame);
     return image;
   }
 
@@ -224,8 +250,12 @@ export class DiskII {
       memory.registerIoWrite(0xe0 + phase * 2 + 1, () => step(true));
     }
     const setMotor = (on: boolean) => {
-      this.drive().motorOn = on;
-      if (on) this.motorRanThisFrame = true;
+      const d = this.drive();
+      d.motorOn = on;
+      if (on) {
+        d.motorRanThisFrame = true;
+        this.motorRanThisFrame = true;
+      }
       return 0;
     };
     memory.registerIoRead(0xe8, () => setMotor(false));

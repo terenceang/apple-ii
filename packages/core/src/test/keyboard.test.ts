@@ -49,6 +49,54 @@ describe("Keyboard", () => {
     expect(memory.read(0xc000)).toBe(0xc2);
   });
 
+  it("releasing the newer key re-latches and re-strobes the still-held older key", () => {
+    const memory = new Memory();
+    const kb = new Keyboard();
+    kb.attach(memory);
+
+    kb.setKey(0x41, true); // press 'A'
+    kb.setKey(0x42, true); // press 'B'
+    memory.write(0xc010, 0x00); // clear strobe
+    expect(memory.read(0xc000)).toBe(0x42); // 'B' without strobe
+
+    kb.setKey(0x42, false); // release 'B'
+    expect(memory.read(0xc000)).toBe(0xc1); // re-latched 'A' with strobe set
+    expect(memory.read(0xc010) & 0x80).toBeTruthy(); // anyKeyDown still true
+  });
+
+  it("hardware auto-repeat re-asserts the strobe while a key is held", () => {
+    const memory = new Memory();
+    const kb = new Keyboard();
+    kb.attach(memory);
+
+    kb.setKey(0x41, true);
+    memory.write(0xc010, 0x00); // game clears strobe
+    expect(memory.read(0xc000)).toBe(0x41);
+
+    kb.step(100_000); // before initial delay expires
+    expect(memory.read(0xc000)).toBe(0x41);
+
+    kb.step(160_000); // total 260,000 > 255,000 delay -> re-strobes
+    expect(memory.read(0xc000)).toBe(0xc1);
+
+    memory.write(0xc010, 0x00); // game clears strobe again
+    expect(memory.read(0xc000)).toBe(0x41);
+
+    kb.step(51_000); // repeat rate interval expires -> re-strobes again
+    expect(memory.read(0xc000)).toBe(0xc1);
+  });
+
+  it("reset clears held keys, strobe, and latch", () => {
+    const memory = new Memory();
+    const kb = new Keyboard();
+    kb.attach(memory);
+
+    kb.setKey(0x41, true);
+    kb.reset();
+    expect(memory.read(0xc000)).toBe(0x00);
+    expect(memory.read(0xc010)).toBe(0x00);
+  });
+
   it("triggerNmi invokes the onBreak hook", () => {
     const kb = new Keyboard();
     let nmiCount = 0;
@@ -58,3 +106,4 @@ describe("Keyboard", () => {
     expect(nmiCount).toBe(2);
   });
 });
+
