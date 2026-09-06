@@ -83,6 +83,14 @@ export class DiskII {
   private selectedDrive = 0;
   private q7 = false;
   private motorRanThisFrame = false;
+  /**
+   * DOS 3.3's boot0 (loaded to $0800) reads track 0 sectors 9 down to 1 into
+   * pages $0900 down to $0100 by repeatedly jumping into the boot PROM's
+   * BTRDSEC routine (at $Cs5C, see attach() below) and back. Real hardware
+   * tracks that destination page inside the PROM itself; boot0 never passes
+   * it explicitly, so we mirror that state here rather than in CPU registers.
+   */
+  private bootReadPage = 9;
 
   get isMotorOn(): boolean {
     return this.drives[this.selectedDrive]!.motorOn;
@@ -143,6 +151,7 @@ export class DiskII {
     if (!image) return false;
     const sector0 = image.tracks[0]!.subarray(0, SECTOR_SIZE);
     for (let i = 0; i < sector0.length; i++) memory.write(0x0800 + i, sector0[i]!);
+    this.bootReadPage = 9;
     return true;
   }
 
@@ -278,7 +287,17 @@ export class DiskII {
       0x8d, 0xe4, 0xc0, // $C616: STA $C0E4  (phase 2 off)
       0x8d, 0xe6, 0xc0, // $C619: STA $C0E6  (phase 3 off)
       0x20, 0xfd, 0xc6, // $C61C: JSR $C6FD  (load boot sector to $0800)
-      0x4c, 0x01, 0x08, // $C61F: JMP $0801
+      // boot0 expects the real PROM to have primed two zero-page cells before
+      // handing it control: $27 = 9 (the page-9-first sentinel it checks to
+      // decide whether to (re)compute its BTRDSEC vector) and $2B = slot*16
+      // (the SLOT16 convention RWTS-family code uses throughout). Without
+      // these, boot0's indirect JMP through $3E/$3F is built from zero page
+      // garbage and jumps into unrelated ROM content.
+      0xa9, 0x09,       // $C61F: LDA #$09
+      0x85, 0x27,       // $C621: STA $27
+      0xa9, 0x60,       // $C623: LDA #$60   (slot 6 * 16)
+      0x85, 0x2b,       // $C625: STA $2B
+      0x4c, 0x01, 0x08, // $C627: JMP $0801
     ];
     for (let i = 0; i < bootStub.length; i++) {
       const addr = 0xc600 + i;
@@ -295,5 +314,26 @@ export class DiskII {
     });
     memory.registerSlotOverlayRead(0xc6fe, () => 0xfd); // JMP target lo
     memory.registerSlotOverlayRead(0xc6ff, () => 0xc6); // JMP target hi
+
+    // BTRDSEC: boot0's own "read the next boot1 sector" entry point, always
+    // at $Cs5C (s = slot). boot0 leaves the target physical sector in zero
+    // page $3D and expects this routine to read track 0 of that sector into
+    // the next lower page (9 down to 1), then jump back to $0801. Real
+    // hardware does this via the raw nibble latch; we take the same direct-
+    // sector-image shortcut as the initial boot-sector load above.
+    memory.registerSlotOverlayRead(0xc65c, () => {
+      const image = this.getDisk(0);
+      if (image) {
+        const sector = memory.read(0x3d);
+        const track0 = image.tracks[0]!;
+        const src = track0.subarray(sector * SECTOR_SIZE, (sector + 1) * SECTOR_SIZE);
+        const destBase = this.bootReadPage * 0x100;
+        for (let i = 0; i < src.length; i++) memory.write(destBase + i, src[i]!);
+        this.bootReadPage--;
+      }
+      return 0x4c; // JMP — first byte
+    });
+    memory.registerSlotOverlayRead(0xc65d, () => 0x01); // JMP target lo ($0801)
+    memory.registerSlotOverlayRead(0xc65e, () => 0x08); // JMP target hi
   }
 }
