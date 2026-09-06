@@ -6,12 +6,14 @@
  * 192/24=8) with the drawn pixels centered in a 5x7 area, leaving a blank
  * column on each side and a blank row at the bottom for character spacing.
  *
- * Lowercase a-z is drawn identically to uppercase — the original (non-
- * enhanced) Apple II couldn't display lowercase at all, and most software
- * that targets this emulator's DOS 3.3 / ProDOS scope is written in
- * uppercase anyway, so this is a deliberate v1 simplification rather than a
- * missing feature. A handful of rare punctuation marks (^ ~ ` { } |) are not
- * drawn and render as blank space.
+ * Lowercase a-z has its own distinct glyphs (see LOWER_GLYPHS below) so
+ * typed-in-lowercase text is visually distinguishable on screen — real
+ * Apple II hardware of this era couldn't do this (DOS 3.3 never enables the
+ * enhanced //e's alternate/lowercase character set), so this is a deliberate
+ * usability deviation from authenticity, not a hardware-accurate feature.
+ * Descenders (g, j, p, q, y) use the 8th row, normally a blank spacer.
+ * A handful of rare punctuation marks (^ ~ ` { } |) are not drawn and
+ * render as blank space.
  */
 const GLYPHS: Record<string, string[]> = {
   " ": [".....", ".....", ".....", ".....", ".....", ".....", "....."],
@@ -79,12 +81,42 @@ const GLYPHS: Record<string, string[]> = {
   _: [".....", ".....", ".....", ".....", ".....", ".....", "#####"],
 };
 
+/** Distinct lowercase letterforms — 8 rows (0-6 = cell body, 7 = descender space). */
+const LOWER_GLYPHS: Record<string, string[]> = {
+  a: [".....", ".....", ".###.", "....#", ".####", "#...#", ".####", "....."],
+  b: ["#....", "#....", "####.", "#...#", "#...#", "#...#", "####.", "....."],
+  c: [".....", ".....", ".####", "#....", "#....", "#....", ".####", "....."],
+  d: ["....#", "....#", ".####", "#...#", "#...#", "#...#", ".####", "....."],
+  e: [".....", ".....", ".###.", "#...#", "#####", "#....", ".####", "....."],
+  f: ["..##.", ".#...", "####.", ".#...", ".#...", ".#...", ".#...", "....."],
+  g: [".....", ".....", ".####", "#...#", "#...#", ".####", "....#", ".###."],
+  h: ["#....", "#....", "####.", "#...#", "#...#", "#...#", "#...#", "....."],
+  i: ["..#..", ".....", ".##..", "..#..", "..#..", "..#..", ".###.", "....."],
+  j: ["...#.", ".....", "..##.", "...#.", "...#.", "...#.", "...#.", ".##.."],
+  k: ["#....", "#....", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "....."],
+  l: [".##..", "..#..", "..#..", "..#..", "..#..", "..#..", ".###.", "....."],
+  m: [".....", ".....", "##.#.", "#.#.#", "#.#.#", "#...#", "#...#", "....."],
+  n: [".....", ".....", "####.", "#...#", "#...#", "#...#", "#...#", "....."],
+  o: [".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###.", "....."],
+  p: [".....", ".....", "####.", "#...#", "#...#", "####.", "#....", "#...."],
+  q: [".....", ".....", ".####", "#...#", "#...#", ".####", "....#", "....#"],
+  r: [".....", ".....", "#.##.", "##..#", "#....", "#....", "#....", "....."],
+  s: [".....", ".....", ".####", "#....", ".###.", "....#", "####.", "....."],
+  t: ["..#..", ".#...", "####.", "..#..", "..#..", "..#.#", "...#.", "....."],
+  u: [".....", ".....", "#...#", "#...#", "#...#", "#..##", ".##.#", "....."],
+  v: [".....", ".....", "#...#", "#...#", "#...#", ".#.#.", "..#..", "....."],
+  w: [".....", ".....", "#...#", "#...#", "#.#.#", "#.#.#", ".#.#.", "....."],
+  x: [".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "....."],
+  y: [".....", ".....", "#...#", "#...#", "#...#", ".####", "....#", ".###."],
+  z: [".....", ".....", "#####", "...#.", "..#..", ".#...", "#####", "....."],
+};
+
 const CELL_WIDTH = 7;
 const CELL_HEIGHT = 8;
 
 function parseGlyph(rows: string[]): Uint8Array {
   const packed = new Uint8Array(CELL_HEIGHT);
-  for (let row = 0; row < 7; row++) {
+  for (let row = 0; row < CELL_HEIGHT; row++) {
     const line = rows[row] ?? ".....";
     let bits = 0;
     for (let col = 0; col < 5; col++) {
@@ -92,7 +124,6 @@ function parseGlyph(rows: string[]): Uint8Array {
     }
     packed[row] = bits;
   }
-  packed[7] = 0; // blank spacer row
   return packed;
 }
 
@@ -106,6 +137,10 @@ for (const [ch, rows] of Object.entries(GLYPHS)) {
   const lower = ch.toLowerCase();
   if (upper !== ch) glyphCache.set(upper.charCodeAt(0), glyph);
   if (lower !== ch && !glyphCache.has(lower.charCodeAt(0))) glyphCache.set(lower.charCodeAt(0), glyph);
+}
+
+for (const [ch, rows] of Object.entries(LOWER_GLYPHS)) {
+  glyphCache.set(ch.charCodeAt(0), parseGlyph(rows));
 }
 
 /** Returns 8 row-bytes (bits 1-5 = pixels, MSB-first within that range) for the given ASCII code. */
