@@ -676,6 +676,10 @@ body.controls-open .app-container {
   color: var(--apple-yellow);
 }
 
+.log-entry.log-debug .log-entry-msg {
+  color: var(--muted);
+}
+
 .log-entry-empty {
   color: var(--muted);
   font-style: italic;

@@ -229,7 +229,7 @@ function setRightTab(tab: RightTab): void {
 interface LogEntry {
   timestamp: string;
   message: string;
-  level: "info" | "warn" | "error";
+  level: "debug" | "info" | "warn" | "error";
 }
 
 const logEntries: LogEntry[] = [];
@@ -285,7 +285,7 @@ function renderLogs(): void {
   for (const entry of logEntries) appendLogEntryUi(entry);
 }
 
-function logEvent(message: string, level: "info" | "warn" | "error" = "info"): void {
+function logEvent(message: string, level: "debug" | "info" | "warn" | "error" = "info"): void {
   const now = new Date();
   const pad = (n: number) => n.toString().padStart(2, "0");
   const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
@@ -423,6 +423,9 @@ function formatRomFilename(files: File[]): string {
     .join(", ");
 }
 
+let lastLoggedMotorOn = false;
+let lastLoggedTrack = -1;
+
 client.onDiskStatus = (diskStatus) => {
   if (floppyLed) floppyLed.classList.toggle("active", diskStatus.motorOn);
   if (screenFloppyLed) screenFloppyLed.classList.toggle("active", diskStatus.motorOn);
@@ -433,6 +436,14 @@ client.onDiskStatus = (diskStatus) => {
   }
   diskLoaded = diskStatus.inserted;
   if (diskExportBtn) diskExportBtn.disabled = !diskLoaded;
+
+  if (diskStatus.motorOn !== lastLoggedMotorOn) {
+    logEvent(`Drive motor ${diskStatus.motorOn ? "on" : "off"} (track ${diskStatus.track}).`, "debug");
+    lastLoggedMotorOn = diskStatus.motorOn;
+  } else if (diskStatus.track !== lastLoggedTrack) {
+    logEvent(`Drive seek to track ${diskStatus.track}.`, "debug");
+  }
+  lastLoggedTrack = diskStatus.track;
 };
 
 function diskExtFromFilename(name: string): DiskFormat | null {
@@ -452,14 +463,16 @@ diskFileInput?.addEventListener("change", async () => {
     return;
   }
   const data = await file.arrayBuffer();
+  logEvent(`Loading disk "${file.name}" (${format}, ${data.byteLength} bytes) into drive 1.`, "debug");
+  await saveSessionMedia({ filename: file.name, format, data: data.slice(0) });
   client.loadDisk(format, data);
   if (diskFileText) diskFileText.textContent = file.name;
   if (diskEjectBtn) diskEjectBtn.disabled = false;
-  await saveSessionMedia({ filename: file.name, format, data: data.slice(0) });
   setStatus(`Inserted disk "${file.name}".`);
 });
 
 diskEjectBtn?.addEventListener("click", async () => {
+  logEvent("Ejecting disk from drive 1.", "debug");
   client.ejectDisk();
   if (diskFileText) diskFileText.textContent = "Insert Disk…";
   if (diskFileInput) diskFileInput.value = "";
@@ -829,6 +842,10 @@ async function loadDiskFromLibrary(): Promise<void> {
 
   hasPoweredOn = true;
   await ensureAudioStarted();
+  logEvent(
+    `Loading disk "${entry.filename}" (${entry.format}, ${entry.data.byteLength} bytes) into drive 1.`,
+    "debug",
+  );
   client.loadDisk(entry.format, entry.data.slice(0));
   if (diskFileText) diskFileText.textContent = entry.filename;
   if (diskEjectBtn) diskEjectBtn.disabled = false;
@@ -1345,10 +1362,14 @@ async function handleMcpCommand(message: McpBridgeCommand): Promise<unknown> {
     case "loadSnapshot":
       client.loadState(base64ToArrayBuffer(message.dataBase64));
       return null;
-    case "loadDisk":
-      client.loadDisk(message.format, base64ToArrayBuffer(message.dataBase64));
+    case "loadDisk": {
+      const data = base64ToArrayBuffer(message.dataBase64);
+      logEvent(`[MCP] Loading disk (${message.format}, ${data.byteLength} bytes) into drive 1.`, "debug");
+      client.loadDisk(message.format, data);
       return null;
+    }
     case "ejectDisk":
+      logEvent("[MCP] Ejecting disk from drive 1.", "debug");
       client.ejectDisk();
       return null;
     case "reset":
