@@ -125,4 +125,64 @@ describe("Memory (Apple //e MMU)", () => {
     mem.write(0xc030, 0x1);
     expect(written).toBe(0x1);
   });
+
+  it("routes zero-page and stack to auxiliary RAM when ALTZP is on ($C009) and main RAM when off ($C008)", () => {
+    const mem = new Memory();
+    mem.attach();
+    mem.reset();
+
+    expect(mem.read(0xc016)).toBe(0x00);
+
+    mem.write(0x0040, 0x11);
+    mem.write(0x0150, 0x22);
+    expect(mem.read(0x0040)).toBe(0x11);
+    expect(mem.read(0x0150)).toBe(0x22);
+
+    mem.write(0xc009, 0);
+    expect(mem.read(0xc016)).toBe(0x80);
+    expect(mem.read(0x0040)).toBe(0x00);
+    expect(mem.read(0x0150)).toBe(0x00);
+
+    mem.write(0x0040, 0xaa);
+    mem.write(0x0150, 0xbb);
+    expect(mem.read(0x0040)).toBe(0xaa);
+    expect(mem.read(0x0150)).toBe(0xbb);
+
+    mem.write(0xc008, 0);
+    expect(mem.read(0xc016)).toBe(0x00);
+    expect(mem.read(0x0040)).toBe(0x11);
+    expect(mem.read(0x0150)).toBe(0x22);
+  });
+
+  it("reads auxiliary status soft switches at $C013-$C018", () => {
+    const mem = new Memory();
+    mem.attach();
+    mem.reset();
+
+    expect(mem.read(0xc013)).toBe(0x00);
+    expect(mem.read(0xc014)).toBe(0x00);
+    expect(mem.read(0xc015)).toBe(0x00);
+    expect(mem.read(0xc016)).toBe(0x00);
+    expect(mem.read(0xc018)).toBe(0x00);
+
+    mem.write(0xc003, 0);
+    expect(mem.read(0xc013)).toBe(0x80);
+    mem.write(0xc002, 0);
+    expect(mem.read(0xc013)).toBe(0x00);
+
+    mem.write(0xc005, 0);
+    expect(mem.read(0xc014)).toBe(0x80);
+    mem.write(0xc004, 0);
+    expect(mem.read(0xc014)).toBe(0x00);
+
+    mem.write(0xc007, 0);
+    expect(mem.read(0xc015)).toBe(0x80);
+    mem.write(0xc006, 0);
+    expect(mem.read(0xc015)).toBe(0x00);
+
+    mem.write(0xc001, 0);
+    expect(mem.read(0xc018)).toBe(0x80);
+    mem.write(0xc000, 0);
+    expect(mem.read(0xc018)).toBe(0x00);
+  });
 });

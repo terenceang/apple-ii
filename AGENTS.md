@@ -46,7 +46,9 @@ The MCP server runs headlessly via stdio (`apple2-mcp` binary). When a browser t
 ## Testing notes
 
 - All tests live in `packages/*/src/test/` (one folder per package, enforced by the vitest include pattern) — never colocate `*.test.ts` with sources
-- Tests use a mock NOP ROM (`makeNopRom`) — real ROMs are not used in tests (except the optional PR#6 smoke test, which skips if `rom/APPLE2E.ROM` is absent)
+- Tests use a mock NOP ROM (`makeNopRom`) — real ROMs are not used in unit tests (except
+  optional smoke tests in `pr6-smoke.test.ts` and `dos33-boot-smoke.test.ts`, which skip if
+  `rom/APPLE2E.ROM` or `Disk/DOS33.dsk` is absent)
 - The CPU suite runs the full Klaus Dormann functional-test exerciser
   (`packages/core/src/test/mos6502.exerciser.test.ts`). The 64KB fixture binary lives in
   `packages/core/src/test/fixtures/` (GPLv3, from Klaus Dormann's repo — no network needed to run).
@@ -55,7 +57,9 @@ The MCP server runs headlessly via stdio (`apple2-mcp` binary). When a browser t
   (translate table, aux order, pair swap, checksum convention) — if you change
   `nibbleCodec.ts`, those vectors are the contract with real DOS 3.3 disks
 - `DiskII` models two drives (`insertDisk(image, drive)`); $C0EA/$C0EB select the active
-  one, and each has independent motor/track/write-protect state
+  one, and each has independent motor/track/write-protect state. On disk tracks, address
+  fields are labeled with physical sector numbers (0..15); DOS 3.3 RWTS handles logical-to-physical
+  interleaving in software via its internal `SECTBL` ($3FB8).
 - The MCP png test needs no build (png.ts only imports node:zlib)
 
 ## Code style

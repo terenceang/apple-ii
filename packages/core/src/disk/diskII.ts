@@ -1,10 +1,8 @@
 import type { Memory } from "../memory/memory.js";
 import {
-  logicalSectorAt,
   SECTORS_PER_TRACK,
   SECTOR_SIZE,
   TRACKS_PER_DISK,
-  type DiskFormat,
   type DiskImage,
 } from "./dsk.js";
 import { DATA_FIELD_NIBBLE_COUNT, decode6and2, encode4and4, encode6and2 } from "./nibbleCodec.js";
@@ -24,22 +22,17 @@ interface TrackLayout {
   dataFields: DataFieldRange[];
 }
 
-function buildTrackLayout(track: Uint8Array, trackNumber: number, format: DiskFormat): TrackLayout {
+function buildTrackLayout(track: Uint8Array, trackNumber: number): TrackLayout {
   const bytes: number[] = [];
   const dataFields: DataFieldRange[] = [];
 
   for (let sector = 0; sector < SECTORS_PER_TRACK; sector++) {
-    // `sector` here is the physical position in `track` (and thus in the
-    // nibble stream); the address field must instead name the LOGICAL DOS
-    // sector that a real formatter put at this physical position, since
-    // that's what RWTS searches for.
-    const logicalSector = logicalSectorAt(format, sector);
     for (let i = 0; i < ADDRESS_GAP; i++) bytes.push(0xff);
     bytes.push(0xd5, 0xaa, 0x96);
     const [volOdd, volEven] = encode4and4(VOLUME_NUMBER);
     const [trkOdd, trkEven] = encode4and4(trackNumber);
-    const [secOdd, secEven] = encode4and4(logicalSector);
-    const [chkOdd, chkEven] = encode4and4(VOLUME_NUMBER ^ trackNumber ^ logicalSector);
+    const [secOdd, secEven] = encode4and4(sector);
+    const [chkOdd, chkEven] = encode4and4(VOLUME_NUMBER ^ trackNumber ^ sector);
     bytes.push(volOdd, volEven, trkOdd, trkEven, secOdd, secEven, chkOdd, chkEven);
     bytes.push(0xde, 0xaa, 0xeb);
 
@@ -167,7 +160,7 @@ export class DiskII {
     if (!d.image) return null;
     const trackIndex = Math.min(TRACKS_PER_DISK - 1, this.currentTrack);
     if (d.currentLayout && d.currentLayoutTrack === trackIndex) return d.currentLayout;
-    d.currentLayout = buildTrackLayout(d.image.tracks[trackIndex]!, trackIndex, d.image.format);
+    d.currentLayout = buildTrackLayout(d.image.tracks[trackIndex]!, trackIndex);
     d.currentLayoutTrack = trackIndex;
     d.headPos = 0;
     return d.currentLayout;

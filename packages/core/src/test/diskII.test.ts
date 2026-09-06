@@ -42,14 +42,16 @@ describe("DiskII controller", () => {
     expect(foundSectors).toEqual([0, 1, 2]);
   });
 
-  it("labels each address field with the logical DOS sector for .dsk (skewed) images, not its physical position", () => {
+  it("labels each address field with its physical sector index for .dsk (skewed) images", () => {
     const memory = new Memory();
     const disk = new DiskII();
     disk.attach(memory);
     // makeSyntheticDisk marks raw file byte offset s*256 (the DOS-order/logical
     // sector s) with value s; parseDsk("dsk") reorders this into physical
-    // track layout, so physical position P should end up holding — and be
-    // labeled — logical sector L where DOS_SECTOR_ORDER[L] === P.
+    // track layout (physical position P = DOS_SECTOR_ORDER[s]).
+    // Address fields on a real diskette are labeled with the physical sector index (0, 1, 2...),
+    // while RWTS's software lookup table (SECTBL) translates logical sector -> physical sector
+    // before searching address fields.
     disk.insertDisk(parseDsk(makeSyntheticDisk(), "dsk"));
 
     memory.read(0xc0ee); // Q7=0 (read mode)
@@ -57,8 +59,9 @@ describe("DiskII controller", () => {
     const scan = new Uint8Array(9000);
     for (let i = 0; i < scan.length; i++) scan[i] = memory.read(0xc0ec);
 
-    const foundSectors: number[] = [];
-    for (let i = 0; i < scan.length - 400 && foundSectors.length < 3; i++) {
+    const foundHeaderSectors: number[] = [];
+    const foundDataValues: number[] = [];
+    for (let i = 0; i < scan.length - 400 && foundHeaderSectors.length < 3; i++) {
       if (scan[i] === 0xd5 && scan[i + 1] === 0xaa && scan[i + 2] === 0x96) {
         const addr = scan.subarray(i + 3, i + 11);
         const sector = decode4and4(addr[4]!, addr[5]!);
@@ -69,15 +72,16 @@ describe("DiskII controller", () => {
         const field = scan.subarray(i + 11 + dataStart + 3, i + 11 + dataStart + 3 + 343);
         const decoded = decode6and2(field);
         expect(decoded).not.toBeNull();
-        // The address field's sector label must match what's actually stored there.
         expect(new Set(decoded!).size).toBe(1);
-        expect(decoded![0]).toBe(sector);
 
-        foundSectors.push(sector);
+        foundHeaderSectors.push(sector);
+        foundDataValues.push(decoded![0]!);
       }
     }
-    // Physical order for DOS_SECTOR_ORDER's skew, not sequential 0,1,2.
-    expect(foundSectors).toEqual([0, 7, 14]);
+    // Physical sectors pass sequentially under the head (0, 1, 2)
+    expect(foundHeaderSectors).toEqual([0, 1, 2]);
+    // The data stored at physical positions 0, 1, 2 is logical sectors 0, 7, 14
+    expect(foundDataValues).toEqual([0, 7, 14]);
   });
 
   it("reports motor state and track position via the stepper/motor soft switches", () => {

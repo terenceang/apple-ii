@@ -63,8 +63,9 @@ the scope of this README.
 
 ## Features
 
-- 6502 CPU (all documented opcodes), Apple //e language-card memory (64K RAM + 16K bank-switched
-  language card), keyboard, speaker, and paddle emulation.
+- 6502 CPU (all documented opcodes), Apple //e 128K memory architecture (64K main RAM +
+  64K aux RAM, 16K bank-switched language card, 80STORE, RAMRD, RAMWRT, ALTZP, and INTCXROM
+  soft switches), keyboard, speaker, and paddle emulation.
 - Video: TEXT40, TEXT80, LORES, HIRES, and MIXED mode, rendered to a 280x192 (560x192 in 80-column) canvas.
 - Disk II controller with two drives, read/write support, and write-protect sensing.
 - Save states (5 slots, thumbnails, F5/F8 quick save/load), a disk library (IndexedDB-backed,

@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 *.log
 .DS_Store
+CLAUDE.md
+*.a2state
+screenshot*.png

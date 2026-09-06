@@ -128,8 +128,9 @@ export class Memory implements Bus {
     setWrite(0x09, () => (this.altzp = true));
     this.registerIoRead(0x13, () => (this.ramrd ? 0x80 : 0));
     this.registerIoRead(0x14, () => (this.ramwrt ? 0x80 : 0));
+    this.registerIoRead(0x15, () => (this.intCxRom ? 0x80 : 0));
+    this.registerIoRead(0x16, () => (this.altzp ? 0x80 : 0));
     this.registerIoRead(0x18, () => (this.store80 ? 0x80 : 0));
-    this.registerIoRead(0x1c, () => (this.altzp ? 0x80 : 0));
   }
 
   reset(): void {

@@ -33,18 +33,6 @@ function sectorOrderFor(format: DiskFormat): number[] {
   return format === "dsk" ? DOS_SECTOR_ORDER : PRODOS_SECTOR_ORDER;
 }
 
-/**
- * Inverse of sectorOrderFor: given a physical sector position on the track
- * (0-15, matching how `DiskImage.tracks` is laid out), returns the logical
- * DOS sector number that belongs there. The disk controller's address field
- * for each physical position must record this logical number — RWTS
- * searches for it by logical sector, not by physical position.
- */
-export function logicalSectorAt(format: DiskFormat, physicalSector: number): number {
-  const order = sectorOrderFor(format);
-  return order.indexOf(physicalSector);
-}
-
 export function parseDsk(bytes: Uint8Array, format: DiskFormat): DiskImage {
   if (bytes.length !== DISK_IMAGE_SIZE) {
     throw new Error(
