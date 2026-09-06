@@ -2,7 +2,7 @@
   "name": "@apple2/worker",
   "private": true,
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "main": "./src/emulator.worker.ts",
   "types": "./src/protocol.ts",
   "scripts": {

@@ -57,14 +57,11 @@ export class AudioRing {
   private readonly header: Int32Array;
   private readonly samples: Float32Array;
   private readonly capacity: number;
-  private readonly minBufferSamples: number;
-  private prebuffered = false;
 
-  constructor(buffer: SharedArrayBuffer, capacitySamples: number, minBufferSamples = 1764) {
+  constructor(buffer: SharedArrayBuffer, capacitySamples: number) {
     this.header = new Int32Array(buffer, 0, AUDIO_HEADER_INT32_LENGTH);
     this.samples = new Float32Array(buffer, AUDIO_HEADER_INT32_LENGTH * 4, capacitySamples);
     this.capacity = capacitySamples;
-    this.minBufferSamples = minBufferSamples;
     if (Atomics.load(this.header, 2) === 0) Atomics.store(this.header, 2, capacitySamples);
   }
 
@@ -82,83 +79,5 @@ export class AudioRing {
     }
     Atomics.store(this.header, 1, writeIndex);
     return count;
-  }
-
-  read(out: Float32Array): void {
-    let readIndex = Atomics.load(this.header, 0);
-    const writeIndex = Atomics.load(this.header, 1);
-    let available = (writeIndex - readIndex + this.capacity) % this.capacity;
-
-    if (!this.prebuffered) {
-      if (available >= this.minBufferSamples) {
-        this.prebuffered = true;
-      } else {
-        out.fill(0);
-        return;
-      }
-    }
-
-    if (available > 8820) {
-      readIndex = (writeIndex - this.minBufferSamples + this.capacity) % this.capacity;
-      available = (writeIndex - readIndex + this.capacity) % this.capacity;
-    }
-
-    if (available === 0) {
-      this.prebuffered = false;
-      out.fill(0);
-      return;
-    }
-
-    const count = Math.min(available, out.length);
-    for (let i = 0; i < count; i++) {
-      out[i] = this.samples[readIndex]!;
-      readIndex = (readIndex + 1) % this.capacity;
-    }
-    for (let i = count; i < out.length; i++) out[i] = 0;
-    Atomics.store(this.header, 0, readIndex);
-  }
-
-  readStereo(outLeft: Float32Array, outRight?: Float32Array): void {
-    let readIndex = Atomics.load(this.header, 0);
-    const writeIndex = Atomics.load(this.header, 1);
-    let available = (writeIndex - readIndex + this.capacity) % this.capacity;
-
-    if (!this.prebuffered) {
-      if (available >= this.minBufferSamples) {
-        this.prebuffered = true;
-      } else {
-        outLeft.fill(0);
-        if (outRight) outRight.fill(0);
-        return;
-      }
-    }
-
-    if (available > 8820) {
-      const target = this.minBufferSamples + (this.minBufferSamples % 2);
-      readIndex = (writeIndex - target + this.capacity) % this.capacity;
-      if (readIndex % 2 !== 0) readIndex = (readIndex - 1 + this.capacity) % this.capacity;
-      available = (writeIndex - readIndex + this.capacity) % this.capacity;
-    }
-
-    if (available < 2) {
-      this.prebuffered = false;
-      outLeft.fill(0);
-      if (outRight) outRight.fill(0);
-      return;
-    }
-
-    const pairs = Math.min(Math.floor(available / 2), outLeft.length);
-    for (let i = 0; i < pairs; i++) {
-      outLeft[i] = this.samples[readIndex]!;
-      readIndex = (readIndex + 1) % this.capacity;
-      const r = this.samples[readIndex]!;
-      readIndex = (readIndex + 1) % this.capacity;
-      if (outRight) outRight[i] = r;
-    }
-    for (let i = pairs; i < outLeft.length; i++) {
-      outLeft[i] = 0;
-      if (outRight) outRight[i] = 0;
-    }
-    Atomics.store(this.header, 0, readIndex);
   }
 }

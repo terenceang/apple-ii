@@ -2,7 +2,7 @@
   "name": "@apple2/mcp-server",
   "private": true,
   "type": "module",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "main": "./dist/index.js",
   "bin": {
     "apple2-mcp": "./dist/index.js"

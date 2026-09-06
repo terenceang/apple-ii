@@ -43,6 +43,14 @@ describe("AppleIIe machine", () => {
     expect(machine.cpu.pc).toBe(0x0801);
     expect(machine.memory.read(0x0801)).toBe(0xa9);
   });
+
+  it("routes keyboard events to $C000 latch with strobe bit", () => {
+    const machine = new AppleIIe();
+    machine.keyboard.setKey(0x41, true);
+    expect(machine.memory.read(0xc000)).toBe(0xc1);
+    machine.memory.read(0xc010);
+    expect(machine.memory.read(0xc000)).toBe(0x41);
+  });
 });
 
 describe("save state", () => {

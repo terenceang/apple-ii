@@ -100,32 +100,26 @@ export class Memory implements Bus {
 
   /** Registers the auxiliary memory bank-switching soft-switch handlers ($C000-$C009). */
   attach(): void {
-    const set = (addrLow: number, apply: () => void): void => {
-      const handler = (): number => {
+    const setWrite = (addrLow: number, apply: () => void): void => {
+      this.registerIoWrite(addrLow, () => {
         apply();
-        return 0;
-      };
-      this.registerIoRead(addrLow, handler);
-      this.registerIoWrite(addrLow, handler);
+      });
     };
-    // 80STORE: $C000 off, $C001 on
-    set(0x00, () => (this.store80 = false));
-    set(0x01, () => (this.store80 = true));
-    // RAMRD: $C002 off, $C003 on
-    set(0x02, () => (this.ramrd = false));
-    set(0x03, () => (this.ramrd = true));
-    // RAMWRT: $C004 off, $C005 on
-    set(0x04, () => (this.ramwrt = false));
-    set(0x05, () => (this.ramwrt = true));
-    // INTCXROM: $C006 off, $C007 on (stubbed — no card ROMs)
-    set(0x06, () => {});
-    set(0x07, () => {});
-    // ALTZP: $C008 off, $C009 on
-    set(0x08, () => (this.altzp = false));
-    set(0x09, () => (this.altzp = true));
-    // Read-only status: return flag state for ROM queries
-    this.registerIoRead(0x18, () => (this.store80 ? 0x80 : 0)); // $C018: 80STORE
-    this.registerIoRead(0x1c, () => (this.altzp ? 0x80 : 0));  // $C01C: ALTZP
+    // $C000-$C009 are write-only switches on Apple //e; reads access the keyboard latch ($C000-$C00F).
+    setWrite(0x00, () => (this.store80 = false));
+    setWrite(0x01, () => (this.store80 = true));
+    setWrite(0x02, () => (this.ramrd = false));
+    setWrite(0x03, () => (this.ramrd = true));
+    setWrite(0x04, () => (this.ramwrt = false));
+    setWrite(0x05, () => (this.ramwrt = true));
+    setWrite(0x06, () => {});
+    setWrite(0x07, () => {});
+    setWrite(0x08, () => (this.altzp = false));
+    setWrite(0x09, () => (this.altzp = true));
+    this.registerIoRead(0x13, () => (this.ramrd ? 0x80 : 0));
+    this.registerIoRead(0x14, () => (this.ramwrt ? 0x80 : 0));
+    this.registerIoRead(0x18, () => (this.store80 ? 0x80 : 0));
+    this.registerIoRead(0x1c, () => (this.altzp ? 0x80 : 0));
   }
 
   reset(): void {

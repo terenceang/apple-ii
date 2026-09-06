@@ -54,6 +54,8 @@ The MCP server runs headlessly via stdio (`apple2-mcp` binary). When a browser t
 - Disk nibble codec tests pin byte-for-byte vectors against AppleWin/MAME references
   (translate table, aux order, pair swap, checksum convention) — if you change
   `nibbleCodec.ts`, those vectors are the contract with real DOS 3.3 disks
+- `DiskII` models two drives (`insertDisk(image, drive)`); $C0EA/$C0EB select the active
+  one, and each has independent motor/track/write-protect state
 - The MCP png test needs no build (png.ts only imports node:zlib)
 
 ## Code style

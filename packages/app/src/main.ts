@@ -464,6 +464,9 @@ diskEjectBtn?.addEventListener("click", async () => {
   if (diskFileText) diskFileText.textContent = "Insert Disk…";
   if (diskFileInput) diskFileInput.value = "";
   if (diskEjectBtn) diskEjectBtn.disabled = true;
+  if (floppyLed) floppyLed.classList.remove("active");
+  if (screenFloppyLed) screenFloppyLed.classList.remove("active");
+  if (floppyStatusText) floppyStatusText.textContent = "No disk inserted";
   await saveSessionMedia(null);
   setStatus("Disk ejected.");
 });
@@ -1178,9 +1181,15 @@ async function onFirstGesture(): Promise<boolean> {
 }
 
 canvas?.addEventListener("pointerdown", () => {
+  if (document.activeElement instanceof HTMLElement && isInteractiveElement(document.activeElement)) {
+    document.activeElement.blur();
+  }
   void onFirstGesture();
 });
 screenFrame?.addEventListener("pointerdown", () => {
+  if (document.activeElement instanceof HTMLElement && isInteractiveElement(document.activeElement)) {
+    document.activeElement.blur();
+  }
   void onFirstGesture();
 });
 
@@ -1316,8 +1325,6 @@ mcpIndicator.style.cursor = "pointer";
 mcpIndicator.title = "Click to toggle MCP bridge";
 mcpIndicator.addEventListener("click", () => setMcpEnabled(!mcpEnabled));
 
-if (mcpEnabled) connectMcpBridge();
-
 async function handleMcpCommand(message: McpBridgeCommand): Promise<unknown> {
   switch (message.cmd) {
     case "getStatus":
@@ -1369,6 +1376,15 @@ async function typeText(text: string): Promise<void> {
     await sleep(120);
   }
 }
+
+document.querySelectorAll<HTMLButtonElement>("button[data-macro]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const macro = btn.dataset.macro;
+    if (!macro) return;
+    void onFirstGesture();
+    void typeText(`${macro}\n`);
+  });
+});
 
 let mcpReconnectDelay = 2000;
 const mcpReconnectMaxDelay = 30000;

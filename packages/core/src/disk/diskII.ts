@@ -45,156 +45,216 @@ function buildTrackLayout(track: Uint8Array, trackNumber: number): TrackLayout {
   return { nibbles: Uint8Array.from(bytes), dataFields };
 }
 
+interface DriveState {
+  image: DiskImage | null;
+  halfTrack: number;
+  lastActivePhase: number;
+  motorOn: boolean;
+  headPos: number;
+  currentLayout: TrackLayout | null;
+  currentLayoutTrack: number;
+  writeScratch: Uint8Array;
+}
+
+function createDriveState(): DriveState {
+  return {
+    image: null,
+    halfTrack: 0,
+    lastActivePhase: -1,
+    motorOn: false,
+    headPos: 0,
+    currentLayout: null,
+    currentLayoutTrack: -1,
+    writeScratch: new Uint8Array(DATA_FIELD_NIBBLE_COUNT),
+  };
+}
+
 /**
  * Disk II controller: stepper-motor track selection, motor on/off, and the
- * Q6/Q7 read/write latch at $C0EC-$C0EF. Serves nibbles from a lazily-built,
+ * Q6/Q7 read/write latch at $C0EC-$C0EF. Supports two drives with independent
+ * motor, track, and head-position state. Serves nibbles from a lazily-built,
  * fully-nibblized track image (see nibbleCodec.ts) rather than a cycle-timed
  * raw bitstream — real DOS 3.3/ProDOS RWTS code just loops reading the latch
  * until it finds the sync/prologue bytes it expects, so this is enough for
  * it to work without needing disk-rotation-accurate timing.
  */
 export class DiskII {
-  private image: DiskImage | null = null;
-  private halfTrack = 0;
-  private lastActivePhase = -1;
-  private motorOn = false;
+  private readonly drives: [DriveState, DriveState] = [createDriveState(), createDriveState()];
+  private selectedDrive = 0;
   private q7 = false;
-  private headPos = 0;
-  private currentLayout: TrackLayout | null = null;
-  private currentLayoutTrack = -1;
-  private writeScratch = new Uint8Array(DATA_FIELD_NIBBLE_COUNT);
+  private motorRanThisFrame = false;
 
   get isMotorOn(): boolean {
-    return this.motorOn;
+    return this.drives[this.selectedDrive]!.motorOn;
+  }
+
+  get hasMotorActivity(): boolean {
+    return this.isMotorOn || this.motorRanThisFrame;
+  }
+
+  resetMotorActivity(): void {
+    this.motorRanThisFrame = false;
   }
 
   get currentTrack(): number {
-    return Math.floor(this.halfTrack / 2);
+    return Math.floor(this.drives[this.selectedDrive]!.halfTrack / 2);
+  }
+
+  get isWriteProtected(): boolean {
+    return this.drives[this.selectedDrive]!.image?.writeProtected ?? false;
   }
 
   turnOffMotor(): void {
-    this.motorOn = false;
+    for (const d of this.drives) d.motorOn = false;
+    this.motorRanThisFrame = false;
   }
 
-  insertDisk(image: DiskImage): void {
-    this.image = image;
-    this.currentLayout = null;
-    this.headPos = 0;
+  insertDisk(image: DiskImage, drive = 0): void {
+    const d = this.drives[drive]!;
+    d.image = image;
+    d.currentLayout = null;
+    d.headPos = 0;
   }
 
-  ejectDisk(): DiskImage | null {
-    const image = this.image;
-    this.image = null;
-    this.currentLayout = null;
+  ejectDisk(drive?: number): DiskImage | null {
+    const d = this.drives[drive ?? this.selectedDrive]!;
+    const image = d.image;
+    d.image = null;
+    d.currentLayout = null;
+    d.motorOn = false;
+    this.motorRanThisFrame = false;
     return image;
   }
 
-  getDisk(): DiskImage | null {
-    return this.image;
+  getDisk(drive?: number): DiskImage | null {
+    return this.drives[drive ?? this.selectedDrive]!.image;
   }
 
   /**
    * Reads track 0, physical sector 0 directly from the sector image (no
    * nibble encode/decode involved) and writes it to $0800, exactly what a
    * real Disk II boot PROM's entry point does. Returns false (writes
-   * nothing) if no disk is inserted. Used both at machine reset (to emulate
-   * the Autostart ROM's power-on disk boot) and by the $C600 boot stub
-   * installed in attach() below (so PR#6 / a manual slot-6 invocation from
-   * an already-running program works too, not just a cold power-on).
+   * nothing) if no disk is inserted in the given drive. Used both at
+   * machine reset (to emulate the Autostart ROM's power-on disk boot)
+   * and by the $C600 boot stub installed in attach() below.
    */
-  loadBootSectorInto(memory: Memory): boolean {
-    if (!this.image) return false;
-    const sector0 = this.image.tracks[0]!.subarray(0, SECTOR_SIZE);
+  loadBootSectorInto(memory: Memory, drive = 0): boolean {
+    const image = this.drives[drive]!.image;
+    if (!image) return false;
+    const sector0 = image.tracks[0]!.subarray(0, SECTOR_SIZE);
     for (let i = 0; i < sector0.length; i++) memory.write(0x0800 + i, sector0[i]!);
     return true;
   }
 
+  private drive(): DriveState {
+    return this.drives[this.selectedDrive]!;
+  }
+
   private layoutForCurrentTrack(): TrackLayout | null {
-    if (!this.image) return null;
+    const d = this.drive();
+    if (!d.image) return null;
     const trackIndex = Math.min(TRACKS_PER_DISK - 1, this.currentTrack);
-    if (this.currentLayout && this.currentLayoutTrack === trackIndex) return this.currentLayout;
-    this.currentLayout = buildTrackLayout(this.image.tracks[trackIndex]!, trackIndex);
-    this.currentLayoutTrack = trackIndex;
-    this.headPos = 0;
-    return this.currentLayout;
+    if (d.currentLayout && d.currentLayoutTrack === trackIndex) return d.currentLayout;
+    d.currentLayout = buildTrackLayout(d.image.tracks[trackIndex]!, trackIndex);
+    d.currentLayoutTrack = trackIndex;
+    d.headPos = 0;
+    return d.currentLayout;
   }
 
   private stepPhase(phase: number, on: boolean): void {
     if (!on) return;
-    if (this.lastActivePhase >= 0) {
-      const forward = (this.lastActivePhase + 1) % 4;
-      const backward = (this.lastActivePhase + 3) % 4;
-      if (phase === forward) this.halfTrack = Math.min(TRACKS_PER_DISK * 2 - 2, this.halfTrack + 1);
-      else if (phase === backward) this.halfTrack = Math.max(0, this.halfTrack - 1);
+    const d = this.drive();
+    if (d.lastActivePhase >= 0) {
+      const forward = (d.lastActivePhase + 1) % 4;
+      const backward = (d.lastActivePhase + 3) % 4;
+      if (phase === forward) d.halfTrack = Math.min(TRACKS_PER_DISK * 2 - 2, d.halfTrack + 1);
+      else if (phase === backward) d.halfTrack = Math.max(0, d.halfTrack - 1);
     }
-    this.lastActivePhase = phase;
-    this.currentLayout = null; // force re-fetch (may be a new track)
+    d.lastActivePhase = phase;
+    d.currentLayout = null;
   }
 
   private readLatch(): number {
     const layout = this.layoutForCurrentTrack();
     if (!layout || layout.nibbles.length === 0) return 0;
-    const value = layout.nibbles[this.headPos]!;
-    this.headPos = (this.headPos + 1) % layout.nibbles.length;
+    const d = this.drive();
+    const value = layout.nibbles[d.headPos]!;
+    d.headPos = (d.headPos + 1) % layout.nibbles.length;
     return value;
   }
 
   private writeLatch(value: number): void {
     const layout = this.layoutForCurrentTrack();
-    if (!layout || !this.image) return;
-    layout.nibbles[this.headPos] = value;
+    const d = this.drive();
+    if (!layout || !d.image) return;
+    if (d.image.writeProtected) return;
+    layout.nibbles[d.headPos] = value;
 
     const field = layout.dataFields.find(
-      (f) => this.headPos >= f.start && this.headPos < f.start + DATA_FIELD_NIBBLE_COUNT,
+      (f) => d.headPos >= f.start && d.headPos < f.start + DATA_FIELD_NIBBLE_COUNT,
     );
     if (field) {
-      const localIndex = this.headPos - field.start;
-      this.writeScratch[localIndex] = value;
+      const localIndex = d.headPos - field.start;
+      d.writeScratch[localIndex] = value;
       if (localIndex === DATA_FIELD_NIBBLE_COUNT - 1) {
-        const decoded = decode6and2(this.writeScratch);
+        const decoded = decode6and2(d.writeScratch);
         if (decoded) {
-          const trackIndex = this.currentLayoutTrack;
-          this.image.tracks[trackIndex]!.set(decoded, field.sector * SECTOR_SIZE);
+          const trackIndex = d.currentLayoutTrack;
+          d.image.tracks[trackIndex]!.set(decoded, field.sector * SECTOR_SIZE);
         }
       }
     }
-    this.headPos = (this.headPos + 1) % layout.nibbles.length;
+    d.headPos = (d.headPos + 1) % layout.nibbles.length;
   }
 
   attach(memory: Memory): void {
     for (let phase = 0; phase < 4; phase++) {
-      memory.registerIoRead(0xe0 + phase * 2, () => {
-        this.stepPhase(phase, false);
+      const step = (on: boolean) => {
+        this.stepPhase(phase, on);
         return 0;
-      });
-      memory.registerIoRead(0xe0 + phase * 2 + 1, () => {
-        this.stepPhase(phase, true);
-        return 0;
-      });
+      };
+      memory.registerIoRead(0xe0 + phase * 2, () => step(false));
+      memory.registerIoWrite(0xe0 + phase * 2, () => step(false));
+      memory.registerIoRead(0xe0 + phase * 2 + 1, () => step(true));
+      memory.registerIoWrite(0xe0 + phase * 2 + 1, () => step(true));
     }
-    memory.registerIoRead(0xe8, () => {
-      this.motorOn = false;
+    const setMotor = (on: boolean) => {
+      this.drive().motorOn = on;
+      if (on) this.motorRanThisFrame = true;
       return 0;
-    });
-    memory.registerIoRead(0xe9, () => {
-      this.motorOn = true;
+    };
+    memory.registerIoRead(0xe8, () => setMotor(false));
+    memory.registerIoWrite(0xe8, () => setMotor(false));
+    memory.registerIoRead(0xe9, () => setMotor(true));
+    memory.registerIoWrite(0xe9, () => setMotor(true));
+
+    const selectDrive = (drive: number) => {
+      this.selectedDrive = drive;
       return 0;
-    });
-    // Drive select (single-drive emulator: accepted for real-hardware compatibility, not tracked).
-    memory.registerIoRead(0xea, () => 0);
-    memory.registerIoRead(0xeb, () => 0);
+    };
+    memory.registerIoRead(0xea, () => selectDrive(0));
+    memory.registerIoWrite(0xea, () => selectDrive(0));
+    memory.registerIoRead(0xeb, () => selectDrive(1));
+    memory.registerIoWrite(0xeb, () => selectDrive(1));
+
     memory.registerIoRead(0xec, () => (this.q7 ? 0 : this.readLatch()));
     memory.registerIoWrite(0xec, (_addr, value) => {
       if (this.q7) this.writeLatch(value);
     });
-    memory.registerIoRead(0xed, () => 0); // write-protect sense: always reports "not protected"
+    memory.registerIoRead(0xed, () => (this.isWriteProtected ? 0x80 : 0));
     memory.registerIoRead(0xee, () => {
       this.q7 = false;
       return 0;
     });
+    memory.registerIoWrite(0xee, () => {
+      this.q7 = false;
+    });
     memory.registerIoRead(0xef, () => {
       this.q7 = true;
       return 0;
+    });
+    memory.registerIoWrite(0xef, () => {
+      this.q7 = true;
     });
 
     // Apple Disk II boot PROM stub at $C600.
@@ -202,22 +262,23 @@ export class DiskII {
     // Real Disk II PROM starts with: LDX #$20; LDY #$00; LDX #$03.
     // We add motor-on ($C0E9) and track-0 seek (phase 0) before loading the
     // boot sector — matching real hardware behavior where the drive spins and heads
-    // seek to track 0 before any read attempt.  With no disk inserted, $C6FD returns
+    // seek to track 0 before any read attempt. With no disk inserted, $C6FD returns
     // bytes that form JMP $C6FD — an infinite loop with motor on, just like real
     // hardware where the RWTS retries forever looking for sector headers.
     const bootStub = [
       0xa2, 0x20,       // $C600: LDX #$20   ($C601 = $20 ✓)
       0xa0, 0x00,       // $C602: LDY #$00   ($C603 = $00 ✓)
       0xa2, 0x03,       // $C604: LDX #$03   ($C605 = $03 ✓)
-      0xad, 0xe9, 0xc0, // $C606: LDA $C0E9  (motor on)
-      0xa9, 0x01,       // $C609: LDA #$01
-      0x8d, 0xe0, 0xc0, // $C60B: STA $C0E0  (phase 0 on — seek track 0)
-      0xa9, 0x00,       // $C60E: LDA #$00
-      0x8d, 0xe2, 0xc0, // $C610: STA $C0E2  (phase 1 off)
-      0x8d, 0xe4, 0xc0, // $C613: STA $C0E4  (phase 2 off)
-      0x8d, 0xe6, 0xc0, // $C616: STA $C0E6  (phase 3 off)
-      0x20, 0xfd, 0xc6, // $C619: JSR $C6FD  (load boot sector to $0800)
-      0x4c, 0x01, 0x08, // $C61C: JMP $0801
+      0xad, 0xea, 0xc0, // $C606: LDA $C0EA  (select drive 1)
+      0xad, 0xe9, 0xc0, // $C609: LDA $C0E9  (motor on)
+      0xa9, 0x01,       // $C60C: LDA #$01
+      0x8d, 0xe0, 0xc0, // $C60E: STA $C0E0  (phase 0 on — seek track 0)
+      0xa9, 0x00,       // $C611: LDA #$00
+      0x8d, 0xe2, 0xc0, // $C613: STA $C0E2  (phase 1 off)
+      0x8d, 0xe4, 0xc0, // $C616: STA $C0E4  (phase 2 off)
+      0x8d, 0xe6, 0xc0, // $C619: STA $C0E6  (phase 3 off)
+      0x20, 0xfd, 0xc6, // $C61C: JSR $C6FD  (load boot sector to $0800)
+      0x4c, 0x01, 0x08, // $C61F: JMP $0801
     ];
     for (let i = 0; i < bootStub.length; i++) {
       const addr = 0xc600 + i;
@@ -226,8 +287,8 @@ export class DiskII {
     }
     // $C6FD: with disk → load boot sector + RTS; without disk → JMP $C6FD (spin forever)
     memory.registerSlotOverlayRead(0xc6fd, () => {
-      if (this.image) {
-        this.loadBootSectorInto(memory);
+      if (this.getDisk(0)) {
+        this.loadBootSectorInto(memory, 0);
         return 0x60; // RTS
       }
       return 0x4c; // JMP — first byte
@@ -236,4 +297,3 @@ export class DiskII {
     memory.registerSlotOverlayRead(0xc6ff, () => 0xc6); // JMP target hi
   }
 }
-

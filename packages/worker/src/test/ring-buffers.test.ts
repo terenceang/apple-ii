@@ -45,73 +45,20 @@ describe("FrameRing writer/reader", () => {
 });
 
 describe("AudioRing", () => {
-  function makeRing(capacity: number, minBufferSamples: number): AudioRing {
+  function makeRing(capacity: number): AudioRing {
     const buffer = new SharedArrayBuffer(AUDIO_HEADER_INT32_LENGTH * 4 + capacity * 4);
-    return new AudioRing(buffer, capacity, minBufferSamples);
+    return new AudioRing(buffer, capacity);
   }
 
-  it("outputs silence until the prebuffer threshold is reached", () => {
-    const ring = makeRing(64, 8);
-    ring.write(Float32Array.from([1, 2, 3, 4])); // below threshold of 8
-    const out = new Float32Array(8);
-    ring.read(out);
-    expect(out.every((v) => v === 0)).toBe(true);
-
-    ring.write(Float32Array.from([5, 6, 7, 8])); // now >= 8 buffered
-    ring.read(out);
-    expect([...out]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  it("reports the write count and advances the write index", () => {
+    const ring = makeRing(16);
+    expect(ring.write(Float32Array.from([1, 2, 3, 4]))).toBe(4);
+    expect(ring.write(Float32Array.from([5, 6]))).toBe(2);
   });
 
-  it("preserves FIFO order across capacity wraparound", () => {
-    const ring = makeRing(16, 1);
-    const out = new Float32Array(10);
-    ring.write(Float32Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
-    ring.read(out); // drains 10, indices wrap
-    expect([...out]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-
-    ring.write(Float32Array.from([11, 12, 13, 14, 15, 16, 17, 18, 19, 20]));
-    ring.read(out);
-    expect([...out]).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
-  });
-
-  it("deinterleaves stereo pairs into left/right outputs", () => {
-    const ring = makeRing(64, 2);
-    ring.write(Float32Array.from([1, -1, 2, -2, 3, -3, 4, -4])); // L,R,L,R,...
-    const left = new Float32Array(4);
-    const right = new Float32Array(4);
-    ring.readStereo(left, right);
-    expect([...left]).toEqual([1, 2, 3, 4]);
-    expect([...right]).toEqual([-1, -2, -3, -4]);
-  });
-
-  it("drops stale data on overflow, resyncing to the newest minBuffer samples", () => {
-    const ring = makeRing(10_000, 100);
-    const data = new Float32Array(9000);
-    for (let i = 0; i < data.length; i++) data[i] = i;
-    ring.write(data); // available 9000 > 8820 -> read side must resync
-
-    const left = new Float32Array(50);
-    const right = new Float32Array(50);
-    ring.readStereo(left, right);
-    // resync keeps exactly minBuffer (100) samples: frames 0..49 = data[8900..8999]
-    expect(left[0]).toBe(8900);
-    expect(right[0]).toBe(8901);
-    expect(left[49]).toBe(8998);
-    expect(right[49]).toBe(8999);
-  });
-
-  it("underrun after prebuffer outputs silence and re-arms the prebuffer gate", () => {
-    const ring = makeRing(64, 4);
-    ring.write(Float32Array.from([1, 2, 3, 4]));
-    const out = new Float32Array(8);
-    ring.read(out); // drains everything
-    expect([...out]).toEqual([1, 2, 3, 4, 0, 0, 0, 0]);
-
-    // buffer now empty -> silence, and the next small write is held back again
-    ring.read(out);
-    expect(out.every((v) => v === 0)).toBe(true);
-    ring.write(Float32Array.from([9, 10]));
-    ring.read(out);
-    expect(out[0]).toBe(0); // 2 < minBuffer 4 -> still silent
+  it("caps writes to the available free space, staying even-sized", () => {
+    const ring = makeRing(8); // capacity 8 -> 7 usable slots -> 6 usable evenly
+    const count = ring.write(new Float32Array(20).fill(1));
+    expect(count).toBe(6);
   });
 });

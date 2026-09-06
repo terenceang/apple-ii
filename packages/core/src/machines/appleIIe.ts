@@ -38,14 +38,14 @@ export class AppleIIe {
   private frameCycles = 0;
 
   constructor() {
+    this.memory.attach();
+    this.video.attach(this.memory);
     this.keyboard.attach(this.memory);
     this.keyboard.onBreak = () => {
       this.cpu.nmiPending = true;
       this.disk.turnOffMotor();
     };
     this.speaker.attach(this.memory);
-    this.memory.attach();
-    this.video.attach(this.memory);
     this.disk.attach(this.memory);
     this.paddle.attach(this.memory, () => this.frameCycles);
   }
@@ -77,6 +77,7 @@ export class AppleIIe {
 
   runFrame(): void {
     this.frameCycles = 0;
+    this.disk.resetMotorActivity();
     while (this.frameCycles < CYCLES_PER_FRAME) {
       this.speaker.currentCycle = this.frameCycles;
       this.frameCycles += this.cpu.step();

@@ -25,6 +25,8 @@ export interface DiskImage {
   format: DiskFormat;
   /** 35 tracks x 16 physical sectors x 256 bytes, already reordered to physical order. */
   tracks: Uint8Array[];
+  /** Physical write-protect notch. When true, the Disk II reports write-protect on $C0ED. */
+  writeProtected: boolean;
 }
 
 function sectorOrderFor(format: DiskFormat): number[] {
@@ -52,7 +54,7 @@ export function parseDsk(bytes: Uint8Array, format: DiskFormat): DiskImage {
     }
     tracks.push(physical);
   }
-  return { format, tracks };
+  return { format, tracks, writeProtected: false };
 }
 
 export function writeDsk(image: DiskImage): Uint8Array {

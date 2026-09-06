@@ -56,7 +56,7 @@ function detectDiskFormat(path: string): DiskFormat {
   throw new Error(`Unrecognized disk file extension for "${path}" (expected .dsk/.po)`);
 }
 
-const server = new McpServer({ name: "apple2", version: "1.0.0" });
+const server = new McpServer({ name: "apple2", version: "0.5.0" });
 
 server.registerTool(
   "load_rom",

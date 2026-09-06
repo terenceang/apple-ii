@@ -65,8 +65,8 @@ the scope of this README.
 
 - 6502 CPU (all documented opcodes), Apple //e language-card memory (64K RAM + 16K bank-switched
   language card), keyboard, speaker, and paddle emulation.
-- Video: TEXT40, LORES, HIRES, and MIXED mode, rendered to a 280x192 canvas.
-- Disk II controller with read and (for unprotected disks) write support.
+- Video: TEXT40, TEXT80, LORES, HIRES, and MIXED mode, rendered to a 280x192 (560x192 in 80-column) canvas.
+- Disk II controller with two drives, read/write support, and write-protect sensing.
 - Save states (5 slots, thumbnails, F5/F8 quick save/load), a disk library (IndexedDB-backed,
   search/rename/bulk-delete), and a paddle/gamepad input mapper — same dark "dev console" UI
   shell as the ZX Spectrum project this was built alongside.
@@ -77,7 +77,7 @@ the scope of this README.
 
 ## Known limitations (deliberate v1 cuts)
 
-- No 80-column text, no double-hi-res, no MouseText glyphs.
+- No double-hi-res, no MouseText glyphs.
 - Video is rendered as a whole frame per 60Hz tick, not scanline-by-scanline — correct for the
   vast majority of software, but not cycle-accurate.
 - HIRES colour uses a simplified fixed-parity approximation, not true NTSC composite artifact

@@ -54,6 +54,19 @@ describe("DiskII controller", () => {
     memory.read(0xc0e8); // motor off
     expect(disk.isMotorOn).toBe(false);
 
+    // Write access to soft switches should also control motor state (hardware doesn't qualify R/W)
+    memory.write(0xc0e9, 0);
+    expect(disk.isMotorOn).toBe(true);
+    memory.write(0xc0e8, 0);
+    expect(disk.isMotorOn).toBe(false);
+
+    // Ejecting disk turns off motor
+    memory.write(0xc0e9, 0);
+    expect(disk.isMotorOn).toBe(true);
+    disk.ejectDisk();
+    expect(disk.isMotorOn).toBe(false);
+    disk.insertDisk(parseDsk(makeSyntheticDisk(), "po"));
+
     expect(disk.currentTrack).toBe(0);
     // Classic outward step sequence: energize phase0, then phase1, then phase2 in turn.
     // Phase p's "on" address is $C0E0 + p*2 + 1.
@@ -190,6 +203,83 @@ describe("DiskII controller", () => {
     memory.read(0xc0ee); // read mode: writes to $C0EC must not touch the track
     const before = disk.getDisk()!.tracks[0]!.slice(0, SECTOR_SIZE);
     for (let i = 0; i < 500; i++) memory.write(0xc0ec, 0xff);
+    expect(Array.from(disk.getDisk()!.tracks[0]!.subarray(0, SECTOR_SIZE))).toEqual(
+      Array.from(before),
+    );
+  });
+
+  it("drive select ($C0EA/$C0EB) switches active drive with independent track positions", () => {
+    const memory = new Memory();
+    const disk = new DiskII();
+    disk.attach(memory);
+
+    const diskBytes = makeSyntheticDisk();
+    disk.insertDisk(parseDsk(diskBytes, "po"), 0);
+    disk.insertDisk(parseDsk(diskBytes, "po"), 1);
+
+    memory.read(0xc0ea); // select drive 0
+    memory.read(0xc0e9); // motor on
+    expect(disk.isMotorOn).toBe(true);
+
+    // Step drive 0 to track 2: 5 half-track steps via the phase sequence 0→1→2→3→0
+    memory.read(0xc0e1); // phase0 on → half-track 0
+    memory.read(0xc0e3); // phase1 on → half-track 1
+    memory.read(0xc0e5); // phase2 on → half-track 2
+    memory.read(0xc0e7); // phase3 on → half-track 3
+    memory.read(0xc0e1); // phase0 on → half-track 4 → track 2
+    expect(disk.currentTrack).toBe(2);
+
+    // Switch to drive 1 — should have its own track 0
+    memory.read(0xc0eb); // select drive 1
+    expect(disk.currentTrack).toBe(0);
+    expect(disk.isMotorOn).toBe(false); // drive 1 motor is independent
+
+    // Drive 0 track is preserved
+    memory.read(0xc0ea); // select drive 0 again
+    expect(disk.currentTrack).toBe(2);
+    expect(disk.isMotorOn).toBe(true);
+  });
+
+  it("$C0ED reports write-protect status of selected drive", () => {
+    const memory = new Memory();
+    const disk = new DiskII();
+    disk.attach(memory);
+
+    const image = parseDsk(makeSyntheticDisk(), "po");
+    image.writeProtected = true;
+    disk.insertDisk(image, 0);
+
+    memory.read(0xc0ea); // select drive 0
+    expect(memory.read(0xc0ed) & 0x80).toBe(0x80); // write-protect bit set
+
+    // Switch to drive 1 (no disk) — write-protect should be clear
+    memory.read(0xc0eb); // select drive 1
+    expect(memory.read(0xc0ed) & 0x80).toBe(0);
+
+    // Drive 0 still reports protected
+    memory.read(0xc0ea);
+    expect(memory.read(0xc0ed) & 0x80).toBe(0x80);
+  });
+
+  it("writes to a write-protected disk are rejected", () => {
+    const memory = new Memory();
+    const disk = new DiskII();
+    disk.attach(memory);
+
+    const image = parseDsk(makeSyntheticDisk(), "po");
+    image.writeProtected = true;
+    disk.insertDisk(image);
+
+    memory.read(0xc0ee); // read mode
+    scanToDataField(memory, 0);
+    const before = disk.getDisk()!.tracks[0]!.slice(0, SECTOR_SIZE);
+
+    const encoded = encode6and2(new Uint8Array(256).fill(0x77));
+    memory.read(0xc0ef); // write mode
+    for (const b of encoded) memory.write(0xc0ec, b);
+    memory.read(0xc0ee); // back to read mode
+
+    // Sector should be unchanged — write-protect blocks the commit
     expect(Array.from(disk.getDisk()!.tracks[0]!.subarray(0, SECTOR_SIZE))).toEqual(
       Array.from(before),
     );

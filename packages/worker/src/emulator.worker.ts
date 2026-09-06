@@ -19,6 +19,8 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let lastDiskMotor = false;
 let lastDiskInserted = false;
 let lastDiskTrack = -1;
+let motorHoldFrames = 0;
+const MOTOR_HOLD_FRAMES = 8;
 
 function post(message: WorkerToHostMessage, transfer?: Transferable[]): void {
   if (transfer) self.postMessage(message, transfer);
@@ -31,8 +33,14 @@ function tick(): void {
     const { pixels, width, height } = machine.getFrameBuffer();
     const audio = machine.getStereoAudioSamples(SAMPLES_PER_FRAME);
 
-    const inserted = machine.disk.getDisk() !== null;
-    const motorOn = machine.disk.isMotorOn;
+    const inserted = machine.disk.getDisk(0) !== null;
+    const rawMotorOn = machine.disk.hasMotorActivity;
+    if (rawMotorOn) {
+      motorHoldFrames = MOTOR_HOLD_FRAMES;
+    } else if (motorHoldFrames > 0) {
+      motorHoldFrames--;
+    }
+    const motorOn = rawMotorOn || motorHoldFrames > 0;
     const track = machine.disk.currentTrack;
     if (inserted !== lastDiskInserted || motorOn !== lastDiskMotor || track !== lastDiskTrack) {
       lastDiskInserted = inserted;
@@ -91,16 +99,23 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
       const bytes = new Uint8Array(message.data);
       const disk = parseDsk(bytes, message.format);
       machine.insertDisk(disk);
+      lastDiskInserted = true;
+      lastDiskMotor = machine.disk.isMotorOn;
+      lastDiskTrack = machine.disk.currentTrack;
       post({
         type: "diskStatus",
         inserted: true,
-        motorOn: machine.disk.isMotorOn,
-        track: machine.disk.currentTrack,
+        motorOn: lastDiskMotor,
+        track: lastDiskTrack,
       });
       break;
     }
     case "ejectDisk": {
       machine.ejectDisk();
+      motorHoldFrames = 0;
+      lastDiskInserted = false;
+      lastDiskMotor = false;
+      lastDiskTrack = 0;
       post({ type: "diskStatus", inserted: false, motorOn: false, track: 0 });
       break;
     }
@@ -126,6 +141,16 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
     }
     case "reset": {
       machine.reset();
+      motorHoldFrames = 0;
+      lastDiskInserted = machine.disk.getDisk(0) !== null;
+      lastDiskMotor = false;
+      lastDiskTrack = machine.disk.currentTrack;
+      post({
+        type: "diskStatus",
+        inserted: lastDiskInserted,
+        motorOn: false,
+        track: lastDiskTrack,
+      });
       start();
       break;
     }

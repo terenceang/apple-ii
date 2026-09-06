@@ -50,9 +50,10 @@ export class VideoState {
     set(0x55, () => (this.page2 = true));
     set(0x56, () => (this.hiresMode = false));
     set(0x57, () => (this.hiresMode = true));
-    // 80-column: $C00C off, $C00D on
-    set(0x0c, () => (this.col80 = false));
-    set(0x0d, () => (this.col80 = true));
+    // 80-column: $C00C off, $C00D on (write-only on Apple //e; read status at $C01F)
+    memory.registerIoWrite(0x0c, () => (this.col80 = false));
+    memory.registerIoWrite(0x0d, () => (this.col80 = true));
+    memory.registerIoRead(0x1f, () => (this.col80 ? 0x80 : 0));
   }
 }
 
