@@ -22,7 +22,7 @@ describe("keyEventToAscii", () => {
     expect(ev({ code: "Enter", key: "Enter" })).toBe(0x0d);
     expect(ev({ code: "Escape", key: "Escape" })).toBe(0x1b);
     expect(ev({ code: "Tab", key: "Tab" })).toBe(0x09);
-    expect(ev({ code: "Backspace", key: "Backspace" })).toBe(0x7f);
+    expect(ev({ code: "Backspace", key: "Backspace" })).toBe(0x08); // real destructive backspace, like ArrowLeft
     expect(ev({ code: "Delete", key: "Delete" })).toBe(0x7f);
     expect(ev({ code: "ArrowLeft", key: "ArrowLeft" })).toBe(0x08);
     expect(ev({ code: "ArrowRight", key: "ArrowRight" })).toBe(0x15);
