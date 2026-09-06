@@ -6,3 +6,5 @@ dist/
 CLAUDE.md
 *.a2state
 screenshot*.png
+/rom/
+/Disk/
