@@ -3,7 +3,7 @@ import { Mos6502 } from "../cpu/mos6502.js";
 import { Memory } from "../memory/memory.js";
 import { DiskII } from "../disk/diskII.js";
 import { DISK_IMAGE_SIZE, SECTOR_SIZE, parseDsk } from "../disk/dsk.js";
-import { decode6and2, encode6and2 } from "../disk/nibbleCodec.js";
+import { decode4and4, decode6and2, encode6and2 } from "../disk/nibbleCodec.js";
 
 function makeSyntheticDisk(): Uint8Array {
   const bytes = new Uint8Array(DISK_IMAGE_SIZE);
@@ -40,6 +40,44 @@ describe("DiskII controller", () => {
       }
     }
     expect(foundSectors).toEqual([0, 1, 2]);
+  });
+
+  it("labels each address field with the logical DOS sector for .dsk (skewed) images, not its physical position", () => {
+    const memory = new Memory();
+    const disk = new DiskII();
+    disk.attach(memory);
+    // makeSyntheticDisk marks raw file byte offset s*256 (the DOS-order/logical
+    // sector s) with value s; parseDsk("dsk") reorders this into physical
+    // track layout, so physical position P should end up holding — and be
+    // labeled — logical sector L where DOS_SECTOR_ORDER[L] === P.
+    disk.insertDisk(parseDsk(makeSyntheticDisk(), "dsk"));
+
+    memory.read(0xc0ee); // Q7=0 (read mode)
+
+    const scan = new Uint8Array(9000);
+    for (let i = 0; i < scan.length; i++) scan[i] = memory.read(0xc0ec);
+
+    const foundSectors: number[] = [];
+    for (let i = 0; i < scan.length - 400 && foundSectors.length < 3; i++) {
+      if (scan[i] === 0xd5 && scan[i + 1] === 0xaa && scan[i + 2] === 0x96) {
+        const addr = scan.subarray(i + 3, i + 11);
+        const sector = decode4and4(addr[4]!, addr[5]!);
+
+        const dataStart = scan.subarray(i + 11).findIndex(
+          (_, j, arr) => arr[j] === 0xd5 && arr[j + 1] === 0xaa && arr[j + 2] === 0xad,
+        );
+        const field = scan.subarray(i + 11 + dataStart + 3, i + 11 + dataStart + 3 + 343);
+        const decoded = decode6and2(field);
+        expect(decoded).not.toBeNull();
+        // The address field's sector label must match what's actually stored there.
+        expect(new Set(decoded!).size).toBe(1);
+        expect(decoded![0]).toBe(sector);
+
+        foundSectors.push(sector);
+      }
+    }
+    // Physical order for DOS_SECTOR_ORDER's skew, not sequential 0,1,2.
+    expect(foundSectors).toEqual([0, 7, 14]);
   });
 
   it("reports motor state and track position via the stepper/motor soft switches", () => {
