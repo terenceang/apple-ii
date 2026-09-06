@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AppleIIe } from "../machines/appleIIe.js";
 import { parseDsk } from "../disk/dsk.js";
+import { dumpScreenText, typeString } from "./testSupport.js";
 
 const romPath = join(import.meta.dirname, "../../../../rom/APPLE2E.ROM");
 const diskPath = join(import.meta.dirname, "../../../../Disk/DOS33.dsk");
@@ -26,4 +27,39 @@ describe.skipIf(!haveFixtures)("DOS 3.3 boot smoke test — real ROM + real disk
     // just the initial sector-0 shortcut.
     expect(machine.memory.read(0x3f00)).not.toBe(0);
   });
+
+  it("boots DOS 3.3 completely to the Applesoft prompt and turns motor off", () => {
+    const machine = new AppleIIe();
+    machine.loadRom(new Uint8Array(readFileSync(romPath)));
+    machine.insertDisk(parseDsk(new Uint8Array(readFileSync(diskPath)), "dsk"));
+    machine.reset();
+
+    // Booting DOS 3.3: loads boot0, boot1, boot2 (relocates DOS to high RAM),
+    // seeks to track 17 (VTOC), loads catalog, runs HELLO, and returns to prompt.
+    for (let i = 0; i < 7000; i++) machine.runFrame();
+
+    expect(machine.disk.isMotorOn).toBe(false);
+
+    // Verify screen text has booted to DOS 3.3 and Applesoft ']' prompt
+    const screenText = dumpScreenText(machine);
+    expect(screenText).toContain("DOS VERSION 3.3");
+    expect(screenText).toContain("]");
+  });
+
+  it("recognizes CATALOG as a DOS command and lists the disk's files", () => {
+    const machine = new AppleIIe();
+    machine.loadRom(new Uint8Array(readFileSync(romPath)));
+    machine.insertDisk(parseDsk(new Uint8Array(readFileSync(diskPath)), "dsk"));
+    machine.reset();
+    for (let i = 0; i < 7000; i++) machine.runFrame();
+
+    typeString(machine, "CATALOG\n");
+    for (let i = 0; i < 300; i++) machine.runFrame();
+
+    const screenText = dumpScreenText(machine);
+    expect(screenText).not.toContain("SYNTAX ERROR");
+    expect(screenText).toContain("DISK VOLUME");
+    expect(screenText).toContain("HELLO");
+  });
 });
+

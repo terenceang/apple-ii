@@ -2,24 +2,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AppleIIe } from "../machines/appleIIe.js";
+import { typeString } from "./testSupport.js";
 
 const romPath = join(import.meta.dirname, "../../../../rom/APPLE2E.ROM");
 
 function loadRealRom(machine: AppleIIe): void {
   const buf = readFileSync(romPath);
   machine.loadRom(new Uint8Array(buf));
-}
-
-function typeString(machine: AppleIIe, text: string): void {
-  for (const ch of text) {
-    const ascii = ch === "\n" ? 0x0d : ch.charCodeAt(0) & 0x7f;
-    machine.keyboard.setKey(ascii, true);
-    machine.runFrame();
-    machine.runFrame();
-    machine.keyboard.setKey(ascii, false);
-    machine.runFrame();
-    machine.runFrame();
-  }
 }
 
 describe("PR#6 smoke test — no disk", () => {
