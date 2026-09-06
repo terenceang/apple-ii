@@ -1,0 +1,15 @@
+{
+  "name": "@apple2/app",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@apple2/core": "*",
+    "@apple2/worker": "*"
+  }
+}

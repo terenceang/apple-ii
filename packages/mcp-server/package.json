@@ -1,0 +1,23 @@
+{
+  "name": "@apple2/mcp-server",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "bin": {
+    "apple2-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@apple2/core": "*",
+    "ws": "^8.18.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}
