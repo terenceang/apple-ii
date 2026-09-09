@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { Bus } from "../cpu/types.js";
+import { Cpu6502ts } from "../cpu/cpu6502ts.js";
 import { Mos6502 } from "../cpu/mos6502.js";
+import type { Bus, Cpu } from "../cpu/types.js";
 
 /**
  * Full-opcode CPU exerciser: Klaus Dormann's 6502 functional test
@@ -14,6 +15,9 @@ import { Mos6502 } from "../cpu/mos6502.js";
  * trap are `jmp *` (self-jumps), so the harness detects a stuck PC and asserts
  * it matches this build's success trap at $3469 (13469 decimal) — any other
  * address means the CPU failed at that test's trap.
+ *
+ * Run against both CPU implementations: the table-driven interpreter and the
+ * adapter around 6502.ts's cycle-exact state-machine core.
  */
 const SUCCESS_TRAP = 0x3469;
 
@@ -27,21 +31,21 @@ class FlatBus implements Bus {
   }
 }
 
-function loadExerciser(): { cpu: Mos6502; bus: FlatBus } {
-  const bus = new FlatBus();
-  const image = readFileSync(new URL("./fixtures/6502_functional_test.bin", import.meta.url));
-  bus.mem.set(image);
-  const cpu = new Mos6502(bus);
-  cpu.pc = 0x0400;
-  return { cpu, bus };
-}
+const CPU_KINDS: [string, (bus: FlatBus) => Cpu][] = [
+  ["interpreter", (bus) => new Mos6502(bus)],
+  ["cycle-exact (6502.ts)", (bus) => new Cpu6502ts(bus)],
+];
 
 describe("Mos6502 Klaus Dormann functional test (all documented opcodes)", () => {
-  it(
-    "completes the full exerciser and jams at the success trap",
+  it.each(CPU_KINDS)(
+    "%s: completes the full exerciser and jams at the success trap",
     { timeout: 120_000 },
-    () => {
-      const { cpu, bus } = loadExerciser();
+    (_label, makeCpu) => {
+      const bus = new FlatBus();
+      const image = readFileSync(new URL("./fixtures/6502_functional_test.bin", import.meta.url));
+      bus.mem.set(image);
+      const cpu = makeCpu(bus);
+      cpu.pc = 0x0400;
       const CYCLE_BUDGET = 200_000_000; // full suite is ~100M cycles; generous margin
       let cycles = 0;
 

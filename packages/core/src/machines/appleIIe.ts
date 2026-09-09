@@ -1,5 +1,7 @@
 import { Speaker } from "../audio/speaker.js";
+import { Cpu6502ts } from "../cpu/cpu6502ts.js";
 import { Mos6502 } from "../cpu/mos6502.js";
+import type { Cpu } from "../cpu/types.js";
 import type { DiskImage } from "../disk/dsk.js";
 import { DiskII } from "../disk/diskII.js";
 import { Keyboard } from "../io/keyboard.js";
@@ -17,6 +19,9 @@ import {
 export const CYCLES_PER_FRAME = 17048;
 export const FPS = 60;
 
+/** Available CPU cores: the table-driven interpreter (default) or the cycle-exact 6502.ts core. */
+export type CpuKind = "interpreter" | "cycle-exact";
+
 const FLASH_HALF_PERIOD_FRAMES = 15; // ~4 toggles/sec at 60fps, close to real hardware's blink rate
 
 export interface Frame {
@@ -27,7 +32,7 @@ export interface Frame {
 
 export class AppleIIe {
   readonly memory = new Memory();
-  readonly cpu = new Mos6502(this.memory);
+  readonly cpu: Cpu;
   readonly keyboard = new Keyboard();
   readonly speaker = new Speaker();
   readonly paddle = new Paddle();
@@ -38,7 +43,8 @@ export class AppleIIe {
   private frameCycles = 0;
   private totalCycles = 0;
 
-  constructor() {
+  constructor(cpuKind: CpuKind = "interpreter") {
+    this.cpu = cpuKind === "cycle-exact" ? new Cpu6502ts(this.memory) : new Mos6502(this.memory);
     this.memory.attach();
     this.video.attach(this.memory);
     this.keyboard.attach(this.memory);

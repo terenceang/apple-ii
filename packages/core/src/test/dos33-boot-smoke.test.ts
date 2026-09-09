@@ -1,13 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AppleIIe } from "../machines/appleIIe.js";
+import { AppleIIe, type CpuKind } from "../machines/appleIIe.js";
 import { parseDsk } from "../disk/dsk.js";
 import { dumpScreenText, typeString } from "./testSupport.js";
 
 const romPath = join(import.meta.dirname, "../../../../rom/APPLE2E.ROM");
 const diskPath = join(import.meta.dirname, "../../../../Disk/DOS33.dsk");
 const haveFixtures = existsSync(romPath) && existsSync(diskPath);
+
+const CPU_KINDS: CpuKind[] = ["interpreter", "cycle-exact"];
 
 describe.skipIf(!haveFixtures)("DOS 3.3 boot smoke test — real ROM + real disk", () => {
   it("boot0 reads its bootstrap sectors off the disk via BTRDSEC", () => {
@@ -28,8 +30,8 @@ describe.skipIf(!haveFixtures)("DOS 3.3 boot smoke test — real ROM + real disk
     expect(machine.memory.read(0x3f00)).not.toBe(0);
   });
 
-  it("boots DOS 3.3 completely to the Applesoft prompt and turns motor off", () => {
-    const machine = new AppleIIe();
+  it.each(CPU_KINDS)("boots DOS 3.3 completely to the Applesoft prompt and turns motor off (%s)", (cpuKind) => {
+    const machine = new AppleIIe(cpuKind);
     machine.loadRom(new Uint8Array(readFileSync(romPath)));
     machine.insertDisk(parseDsk(new Uint8Array(readFileSync(diskPath)), "dsk"));
     machine.reset();

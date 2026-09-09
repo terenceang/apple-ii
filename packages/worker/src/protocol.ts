@@ -1,6 +1,6 @@
-import { FPS, SCREEN_HEIGHT, SCREEN_WIDTH_80, type DiskFormat } from "@apple2/core";
+import { FPS, SCREEN_HEIGHT, SCREEN_WIDTH_80, type CpuKind, type DiskFormat } from "@apple2/core";
 
-export type { DiskFormat };
+export type { CpuKind, DiskFormat };
 
 // Frame geometry and frame rate come from core — single source of truth.
 export const MAX_FRAME_WIDTH = SCREEN_WIDTH_80;
@@ -12,7 +12,12 @@ export const FRAME_INTERVAL_MS = 1000 / APPLE_II_FPS;
 export const SAMPLES_PER_FRAME = Math.round(DEFAULT_SAMPLE_RATE / APPLE_II_FPS);
 
 export type HostToWorkerMessage =
-  | { type: "init"; frameBuffer: SharedArrayBuffer | null; audioBuffer: SharedArrayBuffer | null }
+  | {
+      type: "init";
+      frameBuffer: SharedArrayBuffer | null;
+      audioBuffer: SharedArrayBuffer | null;
+      cpu?: CpuKind;
+    }
   | { type: "loadRom"; rom: ArrayBuffer }
   | { type: "loadDisk"; format: DiskFormat; data: ArrayBuffer; drive?: number }
   | { type: "ejectDisk"; drive?: number }

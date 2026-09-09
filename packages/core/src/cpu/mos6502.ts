@@ -8,7 +8,7 @@ import {
   FLAG_UNUSED,
   FLAG_ZERO,
 } from "./flags.js";
-import type { Bus } from "./types.js";
+import type { Bus, Cpu } from "./types.js";
 
 const NMI_VECTOR = 0xfffa;
 const RESET_VECTOR = 0xfffc;
@@ -268,7 +268,7 @@ const BRANCH_FLAGS = [FLAG_NEGATIVE, FLAG_OVERFLOW, FLAG_CARRY, FLAG_ZERO];
  * returns the number of clock cycles it took, including the +1 page-cross
  * and +1/+2 branch-taken penalties real hardware applies.
  */
-export class Mos6502 {
+export class Mos6502 implements Cpu {
   a = 0;
   x = 0;
   y = 0;

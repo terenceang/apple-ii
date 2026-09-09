@@ -1,4 +1,4 @@
-import { AppleIIe, loadState as applyState, parseDsk, saveState } from "@apple2/core";
+import { AppleIIe, type CpuKind, loadState as applyState, parseDsk, saveState } from "@apple2/core";
 import { AudioRing, FrameRingWriter } from "./ring-buffers.js";
 import {
   AUDIO_CAPACITY_FLOATS,
@@ -10,8 +10,8 @@ import {
   type WorkerToHostMessage,
 } from "./protocol.js";
 
-const machine = new AppleIIe();
-
+let machine: AppleIIe = new AppleIIe();
+let cpuKind: CpuKind = "interpreter";
 let frameWriter: FrameRingWriter | null = null;
 let audioRing: AudioRing | null = null;
 let running = false;
@@ -118,6 +118,11 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
   const message = event.data;
   switch (message.type) {
     case "init": {
+      if (message.cpu && message.cpu !== cpuKind) {
+        // init is the first message; rebuild the machine with the requested CPU core.
+        cpuKind = message.cpu;
+        machine = new AppleIIe(cpuKind);
+      }
       if (message.frameBuffer && message.audioBuffer) {
         frameWriter = new FrameRingWriter(message.frameBuffer, MAX_FRAME_WIDTH, MAX_FRAME_HEIGHT);
         audioRing = new AudioRing(message.audioBuffer, AUDIO_CAPACITY_FLOATS);

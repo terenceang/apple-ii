@@ -1,5 +1,6 @@
 export { Mos6502 } from "./cpu/mos6502.js";
-export type { Bus } from "./cpu/types.js";
+export { Cpu6502ts } from "./cpu/cpu6502ts.js";
+export type { Bus, Cpu, CpuRegisters } from "./cpu/types.js";
 export * from "./cpu/flags.js";
 
 export { Memory } from "./memory/memory.js";
@@ -40,6 +41,6 @@ export type { DiskImage, DiskFormat } from "./disk/dsk.js";
 export { DiskII } from "./disk/diskII.js";
 
 export { AppleIIe, CYCLES_PER_FRAME, FPS } from "./machines/appleIIe.js";
-export type { Frame } from "./machines/appleIIe.js";
+export type { Frame, CpuKind } from "./machines/appleIIe.js";
 
 export { saveState, loadState } from "./state.js";
