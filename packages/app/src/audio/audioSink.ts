@@ -1,4 +1,5 @@
 const speakerProcessorUrl = `${import.meta.env.BASE_URL}speaker-processor.js`;
+import { DEFAULT_SAMPLE_RATE } from "../../../worker/src/protocol.js";
 import type { EmulatorClient } from "../worker-client.js";
 
 export class AudioSink {
@@ -17,7 +18,7 @@ export class AudioSink {
 
   async start(client: EmulatorClient): Promise<void> {
     if (!this.audioContext) {
-      this.audioContext = new AudioContext({ sampleRate: 44100 });
+      this.audioContext = new AudioContext({ sampleRate: DEFAULT_SAMPLE_RATE });
       this.gainNode = this.audioContext.createGain();
       this.gainNode.gain.value = this.muted ? 0 : this.volume;
       this.gainNode.connect(this.audioContext.destination);

@@ -42,6 +42,18 @@ function post(message: WorkerToHostMessage, transfer?: Transferable[]): void {
   else self.postMessage(message);
 }
 
+/** Posts one diskStatus message, preferring explicit overrides over live machine state. */
+function postDriveStatus(drive: number, status?: Partial<{ inserted: boolean; motorOn: boolean; track: number }>): void {
+  const inserted = status?.inserted ?? machine.disk.getDisk(drive) !== null;
+  const motorOn = status?.motorOn ?? machine.disk.isDriveMotorOn(drive);
+  const track = status?.track ?? machine.disk.getDriveTrack(drive);
+  const rep = driveReports[drive]!;
+  rep.inserted = inserted;
+  rep.motorOn = motorOn;
+  rep.track = track;
+  post({ type: "diskStatus", drive, inserted, motorOn, track });
+}
+
 function tick(): void {
   try {
     for (let i = 0; i < FAST_FORWARD_EXTRA_FRAMES && machine.disk.isMotorOn; i++) {
@@ -122,28 +134,14 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
       const bytes = new Uint8Array(message.data);
       const disk = parseDsk(bytes, message.format);
       machine.insertDisk(disk, drive);
-      const rep = driveReports[drive]!;
-      rep.inserted = true;
-      rep.motorOn = machine.disk.isDriveMotorOn(drive);
-      rep.track = machine.disk.getDriveTrack(drive);
-      post({
-        type: "diskStatus",
-        drive,
-        inserted: true,
-        motorOn: rep.motorOn,
-        track: rep.track,
-      });
+      postDriveStatus(drive, { inserted: true });
       break;
     }
     case "ejectDisk": {
       const drive = message.drive ?? 0;
       machine.ejectDisk(drive);
-      const rep = driveReports[drive]!;
-      rep.motorHoldFrames = 0;
-      rep.inserted = false;
-      rep.motorOn = false;
-      rep.track = 0;
-      post({ type: "diskStatus", drive, inserted: false, motorOn: false, track: 0 });
+      driveReports[drive]!.motorHoldFrames = 0;
+      postDriveStatus(drive, { inserted: false, motorOn: false, track: 0 });
       break;
     }
     case "keyEvent": {
@@ -169,18 +167,8 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
     case "reset": {
       machine.reset();
       for (let d = 0; d < 2; d++) {
-        const rep = driveReports[d]!;
-        rep.motorHoldFrames = 0;
-        rep.inserted = machine.disk.getDisk(d) !== null;
-        rep.motorOn = false;
-        rep.track = machine.disk.getDriveTrack(d);
-        post({
-          type: "diskStatus",
-          drive: d,
-          inserted: rep.inserted,
-          motorOn: false,
-          track: rep.track,
-        });
+        driveReports[d]!.motorHoldFrames = 0;
+        postDriveStatus(d, { motorOn: false });
       }
       start();
       break;

@@ -23,8 +23,7 @@ export class Keyboard {
     for (let addr = 0x00; addr <= 0x0f; addr++) {
       memory.registerIoRead(addr, readKbd);
     }
-    memory.registerIoRead(0x10, () => this.clearStrobe());
-    memory.registerIoWrite(0x10, () => this.clearStrobe());
+    memory.registerIo(0x10, () => this.clearStrobe());
   }
 
   reset(): void {

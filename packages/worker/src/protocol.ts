@@ -1,6 +1,15 @@
-import type { DiskFormat } from "@apple2/core";
+import { FPS, SCREEN_HEIGHT, SCREEN_WIDTH_80, type DiskFormat } from "@apple2/core";
 
 export type { DiskFormat };
+
+// Frame geometry and frame rate come from core — single source of truth.
+export const MAX_FRAME_WIDTH = SCREEN_WIDTH_80;
+export const MAX_FRAME_HEIGHT = SCREEN_HEIGHT;
+export const DEFAULT_SAMPLE_RATE = 44100;
+export const AUDIO_CHANNELS = 2;
+export const APPLE_II_FPS = FPS;
+export const FRAME_INTERVAL_MS = 1000 / APPLE_II_FPS;
+export const SAMPLES_PER_FRAME = Math.round(DEFAULT_SAMPLE_RATE / APPLE_II_FPS);
 
 export type HostToWorkerMessage =
   | { type: "init"; frameBuffer: SharedArrayBuffer | null; audioBuffer: SharedArrayBuffer | null }
@@ -24,17 +33,9 @@ export type WorkerToHostMessage =
   | { type: "error"; message: string }
   | { type: "stateData"; data: ArrayBuffer };
 
-export const MAX_FRAME_WIDTH = 560;
-export const MAX_FRAME_HEIGHT = 192;
-export const DEFAULT_SAMPLE_RATE = 44100;
-export const AUDIO_CHANNELS = 2;
-export const APPLE_II_FPS = 60;
-export const FRAME_INTERVAL_MS = 1000 / APPLE_II_FPS;
-export const SAMPLES_PER_FRAME = Math.round(DEFAULT_SAMPLE_RATE / APPLE_II_FPS);
 export const STEREO_SAMPLES_PER_FRAME = SAMPLES_PER_FRAME * AUDIO_CHANNELS;
-export const AUDIO_CAPACITY_SAMPLES = 44100;
+export const AUDIO_CAPACITY_SAMPLES = DEFAULT_SAMPLE_RATE;
 export const AUDIO_CAPACITY_FLOATS = AUDIO_CAPACITY_SAMPLES * AUDIO_CHANNELS;
-
 export const FRAME_HEADER_INT32_LENGTH = 3;
 
 export function frameBufferByteLength(

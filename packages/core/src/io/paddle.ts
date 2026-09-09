@@ -23,13 +23,11 @@ export class Paddle {
     for (let i = 0; i < 3; i++) {
       memory.registerIoRead(0x61 + i, () => (this.button[i] ? 0x80 : 0));
     }
-    const restart = (): number => {
+    memory.registerIo(0x70, () => {
       const now = this.getCycle();
       for (let i = 0; i < PADDLE_COUNT; i++) this.timerStartCycle[i] = now;
       return 0;
-    };
-    memory.registerIoRead(0x70, restart);
-    memory.registerIoWrite(0x70, restart);
+    });
   }
 
   private readPaddle(index: number): number {

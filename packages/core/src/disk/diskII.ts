@@ -169,16 +169,38 @@ export class DiskII {
    * machine reset (to emulate the Autostart ROM's power-on disk boot)
    * and by the $C600 boot stub installed in attach() below.
    */
+  /**
+   * Copies a raw 256-byte sector into memory starting at `destBase` (a page
+   * boundary in practice). Shared by the boot-PROM sector load and the
+   * BTRDSEC boot1 handoff.
+   */
+  private copySectorTo(memory: Memory, src: Uint8Array, destBase: number): void {
+    for (let i = 0; i < src.length; i++) memory.write(destBase + i, src[i]!);
+  }
+
   loadBootSectorInto(memory: Memory, drive = 0): boolean {
     const image = this.drives[drive]!.image;
     if (!image) return false;
-    const sector0 = image.tracks[0]!.subarray(0, SECTOR_SIZE);
-    for (let i = 0; i < sector0.length; i++) memory.write(0x0800 + i, sector0[i]!);
+    this.copySectorTo(memory, image.tracks[0]!.subarray(0, SECTOR_SIZE), 0x0800);
     return true;
   }
 
   private drive(): DriveState {
     return this.drives[this.selectedDrive]!;
+  }
+
+  private setMotor(on: boolean): void {
+    const d = this.drive();
+    d.motorOn = on;
+    if (on) {
+      d.motorRanThisFrame = true;
+      this.motorRanThisFrame = true;
+    }
+  }
+
+  private selectDrive(drive: number): number {
+    this.selectedDrive = drive;
+    return 0;
   }
 
   private layoutForCurrentTrack(): TrackLayout | null {
@@ -240,56 +262,38 @@ export class DiskII {
 
   attach(memory: Memory): void {
     for (let phase = 0; phase < 4; phase++) {
-      const step = (on: boolean) => {
-        this.stepPhase(phase, on);
+      memory.registerIo(0xe0 + phase * 2, () => {
+        this.stepPhase(phase, false);
         return 0;
-      };
-      memory.registerIoRead(0xe0 + phase * 2, () => step(false));
-      memory.registerIoWrite(0xe0 + phase * 2, () => step(false));
-      memory.registerIoRead(0xe0 + phase * 2 + 1, () => step(true));
-      memory.registerIoWrite(0xe0 + phase * 2 + 1, () => step(true));
+      });
+      memory.registerIo(0xe0 + phase * 2 + 1, () => {
+        this.stepPhase(phase, true);
+        return 0;
+      });
     }
-    const setMotor = (on: boolean) => {
-      const d = this.drive();
-      d.motorOn = on;
-      if (on) {
-        d.motorRanThisFrame = true;
-        this.motorRanThisFrame = true;
-      }
+    memory.registerIo(0xe8, () => {
+      this.setMotor(false);
       return 0;
-    };
-    memory.registerIoRead(0xe8, () => setMotor(false));
-    memory.registerIoWrite(0xe8, () => setMotor(false));
-    memory.registerIoRead(0xe9, () => setMotor(true));
-    memory.registerIoWrite(0xe9, () => setMotor(true));
-
-    const selectDrive = (drive: number) => {
-      this.selectedDrive = drive;
+    });
+    memory.registerIo(0xe9, () => {
+      this.setMotor(true);
       return 0;
-    };
-    memory.registerIoRead(0xea, () => selectDrive(0));
-    memory.registerIoWrite(0xea, () => selectDrive(0));
-    memory.registerIoRead(0xeb, () => selectDrive(1));
-    memory.registerIoWrite(0xeb, () => selectDrive(1));
+    });
+    memory.registerIo(0xea, () => this.selectDrive(0));
+    memory.registerIo(0xeb, () => this.selectDrive(1));
 
     memory.registerIoRead(0xec, () => (this.q7 ? 0 : this.readLatch()));
     memory.registerIoWrite(0xec, (_addr, value) => {
       if (this.q7) this.writeLatch(value);
     });
     memory.registerIoRead(0xed, () => (this.isWriteProtected ? 0x80 : 0));
-    memory.registerIoRead(0xee, () => {
+    memory.registerIo(0xee, () => {
       this.q7 = false;
       return 0;
     });
-    memory.registerIoWrite(0xee, () => {
-      this.q7 = false;
-    });
-    memory.registerIoRead(0xef, () => {
+    memory.registerIo(0xef, () => {
       this.q7 = true;
       return 0;
-    });
-    memory.registerIoWrite(0xef, () => {
-      this.q7 = true;
     });
 
     // Apple Disk II boot PROM stub at $C600.
@@ -354,10 +358,8 @@ export class DiskII {
       const image = this.getDisk(0);
       if (image) {
         const sector = memory.read(0x3d);
-        const track0 = image.tracks[0]!;
-        const src = track0.subarray(sector * SECTOR_SIZE, (sector + 1) * SECTOR_SIZE);
-        const destBase = memory.read(0x27) * 0x100;
-        for (let i = 0; i < src.length; i++) memory.write(destBase + i, src[i]!);
+        const src = image.tracks[0]!.subarray(sector * SECTOR_SIZE, (sector + 1) * SECTOR_SIZE);
+        this.copySectorTo(memory, src, memory.read(0x27) * 0x100);
       }
       return 0x4c; // JMP — first byte
     });

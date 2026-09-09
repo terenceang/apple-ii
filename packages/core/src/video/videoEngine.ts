@@ -35,12 +35,10 @@ export class VideoState {
 
   attach(memory: Memory): void {
     const set = (addrLow: number, apply: () => void): void => {
-      const handler = (): number => {
+      memory.registerIo(addrLow, () => {
         apply();
         return 0;
-      };
-      memory.registerIoRead(addrLow, handler);
-      memory.registerIoWrite(addrLow, handler);
+      });
     };
     set(0x50, () => (this.textMode = false));
     set(0x51, () => (this.textMode = true));
@@ -66,6 +64,11 @@ function decodeTextByte(byte: number): { ascii: number; inverse: boolean; flash:
   return { ascii, inverse: !flash, flash };
 }
 
+/**
+ * Renders one text scanline in 40- or 80-column mode. In 80-column mode even
+ * columns come from the main text page and odd columns from aux (+$0400 from
+ * main), so only the per-column byte fetch differs between the two modes.
+ */
 function drawTextRow(
   memory: Memory,
   out: Uint8Array,
@@ -73,95 +76,100 @@ function drawTextRow(
   scanline: number,
   base: number,
   flashOn: boolean,
+  wide: boolean,
 ): void {
-  const rowAddr = textRowAddress(base, charRow);
+  const mainAddr = textRowAddress(base, charRow);
+  const auxAddr = textRowAddress(base + TEXT_PAGE1, charRow);
   const withinCell = scanline % CELL_HEIGHT;
-  const outRowOffset = scanline * SCREEN_WIDTH;
-  for (let col = 0; col < TEXT_COLS; col++) {
-    const byte = memory.read(rowAddr + col);
+  const cols = wide ? TEXT_COLS_80 : TEXT_COLS;
+  const outRowOffset = scanline * (wide ? SCREEN_WIDTH_80 : SCREEN_WIDTH);
+  for (let col = 0; col < cols; col++) {
+    const byte = wide
+      ? col & 1
+        ? memory.readAux(auxAddr + (col >> 1))
+        : memory.readMain(mainAddr + (col >> 1))
+      : memory.read(mainAddr + col);
     const { ascii, inverse, flash } = decodeTextByte(byte);
     const showInverse = inverse || (flash && flashOn);
     const glyphRow = getGlyph(ascii)[withinCell] ?? 0;
-    const outCol = col * CELL_WIDTH;
+    const outCol = outRowOffset + col * CELL_WIDTH;
     for (let bit = 0; bit < CELL_WIDTH; bit++) {
       const pixelOn = ((glyphRow >> (CELL_WIDTH - 1 - bit)) & 1) !== 0;
       const lit = showInverse ? !pixelOn : pixelOn;
-      out[outRowOffset + outCol + bit] = lit ? ColorIndex.White : ColorIndex.Black;
+      out[outCol + bit] = lit ? ColorIndex.White : ColorIndex.Black;
     }
   }
 }
 
-/** 80-column text: even columns from main text page ($0400), odd columns from aux ($0800). */
-function drawTextRow80(
+function drawLoresRow(
   memory: Memory,
   out: Uint8Array,
   charRow: number,
   scanline: number,
   base: number,
-  flashOn: boolean,
+  wide: boolean,
 ): void {
-  const mainAddr = textRowAddress(base, charRow);
-  const auxAddr = textRowAddress(base + 0x0400, charRow); // aux page is +$0400 from main
-  const withinCell = scanline % CELL_HEIGHT;
-  const outRowOffset = scanline * SCREEN_WIDTH_80;
-  for (let col80 = 0; col80 < TEXT_COLS_80; col80++) {
-    const col40 = col80 >> 1;
-    const byte = col80 & 1 ? memory.readAux(auxAddr + col40) : memory.readMain(mainAddr + col40);
-    const { ascii, inverse, flash } = decodeTextByte(byte);
-    const showInverse = inverse || (flash && flashOn);
-    const glyphRow = getGlyph(ascii)[withinCell] ?? 0;
-    const outCol = col80 * CELL_WIDTH;
-    for (let bit = 0; bit < CELL_WIDTH; bit++) {
-      const pixelOn = ((glyphRow >> (CELL_WIDTH - 1 - bit)) & 1) !== 0;
-      const lit = showInverse ? !pixelOn : pixelOn;
-      out[outRowOffset + outCol + bit] = lit ? ColorIndex.White : ColorIndex.Black;
-    }
-  }
-}
-
-function drawLoresRow(memory: Memory, out: Uint8Array, charRow: number, scanline: number, base: number): void {
   const rowAddr = textRowAddress(base, charRow);
   const withinCell = scanline % CELL_HEIGHT;
   const upperHalf = withinCell < 4;
-  const outRowOffset = scanline * SCREEN_WIDTH;
+  // In wide mode the 280px row is centered in a 560px buffer (doubled pixels).
+  const outRowOffset = scanline * (wide ? SCREEN_WIDTH_80 : SCREEN_WIDTH);
   for (let col = 0; col < TEXT_COLS; col++) {
     const byte = memory.read(rowAddr + col);
     const color = upperHalf ? byte & 0x0f : (byte >> 4) & 0x0f;
-    const outCol = col * CELL_WIDTH;
-    for (let bit = 0; bit < CELL_WIDTH; bit++) out[outRowOffset + outCol + bit] = color;
+    const outCol = outRowOffset + col * CELL_WIDTH;
+    for (let bit = 0; bit < CELL_WIDTH; bit++) {
+      if (wide) {
+        out[outCol + bit * 2] = color;
+        out[outCol + bit * 2 + 1] = color;
+      } else {
+        out[outCol + bit] = color;
+      }
+    }
   }
 }
 
 const HIRES_GROUP0: [ColorIndex, ColorIndex] = [ColorIndex.Green, ColorIndex.Violet];
 const HIRES_GROUP1: [ColorIndex, ColorIndex] = [ColorIndex.Orange, ColorIndex.MediumBlue];
 
-function drawHiresRow(memory: Memory, out: Uint8Array, y: number, base: number): void {
+// Per-scanline scratch for the hires decoder, reused across rows and frames
+// (renderFrame is single-threaded and consumes a row fully before the next).
+const HIRES_BITS = new Uint8Array(SCREEN_WIDTH);
+const HIRES_GROUPS = new Uint8Array(SCREEN_WIDTH);
+
+function drawHiresRow(memory: Memory, out: Uint8Array, y: number, base: number, wide: boolean): void {
   const rowAddr = hiresLineAddress(base, y);
-  const bits = new Uint8Array(SCREEN_WIDTH);
-  const groups = new Uint8Array(SCREEN_WIDTH);
   for (let byteIndex = 0; byteIndex < 40; byteIndex++) {
     const byte = memory.read(rowAddr + byteIndex);
     const group = (byte & 0x80) !== 0 ? 1 : 0;
     for (let bit = 0; bit < 7; bit++) {
       const px = byteIndex * 7 + bit;
-      bits[px] = (byte >> bit) & 1;
-      groups[px] = group;
+      HIRES_BITS[px] = (byte >> bit) & 1;
+      HIRES_GROUPS[px] = group;
     }
   }
-  const outRowOffset = y * SCREEN_WIDTH;
+  // In wide mode the 280px row is centered in a 560px buffer (doubled pixels).
+  const outRowOffset = y * (wide ? SCREEN_WIDTH_80 : SCREEN_WIDTH);
   for (let px = 0; px < SCREEN_WIDTH; px++) {
-    if (!bits[px]) {
-      out[outRowOffset + px] = ColorIndex.Black;
-      continue;
+    let color: ColorIndex;
+    if (!HIRES_BITS[px]) {
+      color = ColorIndex.Black;
+    } else {
+      const prevOn = px > 0 && HIRES_BITS[px - 1] === 1;
+      const nextOn = px < SCREEN_WIDTH - 1 && HIRES_BITS[px + 1] === 1;
+      if (prevOn || nextOn) {
+        color = ColorIndex.White;
+      } else {
+        const palette = HIRES_GROUPS[px] === 1 ? HIRES_GROUP1 : HIRES_GROUP0;
+        color = px % 2 === 0 ? palette[0] : palette[1];
+      }
     }
-    const prevOn = px > 0 && bits[px - 1] === 1;
-    const nextOn = px < SCREEN_WIDTH - 1 && bits[px + 1] === 1;
-    if (prevOn || nextOn) {
-      out[outRowOffset + px] = ColorIndex.White;
-      continue;
+    if (wide) {
+      out[outRowOffset + px * 2] = color;
+      out[outRowOffset + px * 2 + 1] = color;
+    } else {
+      out[outRowOffset + px] = color;
     }
-    const palette = groups[px] === 1 ? HIRES_GROUP1 : HIRES_GROUP0;
-    out[outRowOffset + px] = px % 2 === 0 ? palette[0] : palette[1];
   }
 }
 
@@ -177,37 +185,11 @@ export function renderFrame(memory: Memory, state: VideoState, flashOn: boolean)
     const charRow = Math.floor(y / CELL_HEIGHT);
     const isTextLine = state.textMode || (state.mixedMode && charRow >= 20);
     if (isTextLine) {
-      if (is80) {
-        drawTextRow80(memory, out, charRow, y, textBase, flashOn);
-      } else {
-        drawTextRow(memory, out, charRow, y, textBase, flashOn);
-      }
+      drawTextRow(memory, out, charRow, y, textBase, flashOn, is80);
     } else if (state.hiresMode) {
-      // Hires is always 280px — center it in a 560px buffer when in 80-col mode
-      if (is80) {
-        const hiresRow = new Uint8Array(SCREEN_WIDTH);
-        drawHiresRow(memory, hiresRow, y, hiresBase);
-        const outRowOffset = y * SCREEN_WIDTH_80;
-        for (let px = 0; px < SCREEN_WIDTH; px++) {
-          out[outRowOffset + px * 2] = hiresRow[px]!;
-          out[outRowOffset + px * 2 + 1] = hiresRow[px]!;
-        }
-      } else {
-        drawHiresRow(memory, out, y, hiresBase);
-      }
+      drawHiresRow(memory, out, y, hiresBase, is80);
     } else {
-      // LORES is always 280px — center it in a 560px buffer when in 80-col mode
-      if (is80) {
-        const loresRow = new Uint8Array(SCREEN_WIDTH);
-        drawLoresRow(memory, loresRow, charRow, y, textBase);
-        const outRowOffset = y * SCREEN_WIDTH_80;
-        for (let px = 0; px < SCREEN_WIDTH; px++) {
-          out[outRowOffset + px * 2] = loresRow[px]!;
-          out[outRowOffset + px * 2 + 1] = loresRow[px]!;
-        }
-      } else {
-        drawLoresRow(memory, out, charRow, y, textBase);
-      }
+      drawLoresRow(memory, out, charRow, y, textBase, is80);
     }
   }
   return out;

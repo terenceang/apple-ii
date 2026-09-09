@@ -33,6 +33,27 @@ function sectorOrderFor(format: DiskFormat): number[] {
   return format === "dsk" ? DOS_SECTOR_ORDER : PRODOS_SECTOR_ORDER;
 }
 
+/**
+ * Copies one track between a contiguous file-order slice and a
+ * physically-ordered track buffer, applying the format's logical->physical
+ * sector mapping in whichever direction is needed. Shared by parseDsk and
+ * writeDsk so the two mappings can never diverge.
+ */
+function remapTrack(
+  src: Uint8Array,
+  srcIsPhysical: boolean,
+  dst: Uint8Array,
+  dstOffset: number,
+  order: number[],
+): void {
+  for (let logical = 0; logical < SECTORS_PER_TRACK; logical++) {
+    const physical = order[logical]!;
+    const from = (srcIsPhysical ? physical : logical) * SECTOR_SIZE;
+    const to = dstOffset + (srcIsPhysical ? logical : physical) * SECTOR_SIZE;
+    dst.set(src.subarray(from, from + SECTOR_SIZE), to);
+  }
+}
+
 export function parseDsk(bytes: Uint8Array, format: DiskFormat): DiskImage {
   if (bytes.length !== DISK_IMAGE_SIZE) {
     throw new Error(
@@ -43,15 +64,7 @@ export function parseDsk(bytes: Uint8Array, format: DiskFormat): DiskImage {
   const tracks: Uint8Array[] = [];
   for (let t = 0; t < TRACKS_PER_DISK; t++) {
     const physical = new Uint8Array(TRACK_SIZE);
-    const trackOffset = t * TRACK_SIZE;
-    for (let logicalSector = 0; logicalSector < SECTORS_PER_TRACK; logicalSector++) {
-      const physicalSector = order[logicalSector]!;
-      const src = bytes.subarray(
-        trackOffset + logicalSector * SECTOR_SIZE,
-        trackOffset + (logicalSector + 1) * SECTOR_SIZE,
-      );
-      physical.set(src, physicalSector * SECTOR_SIZE);
-    }
+    remapTrack(bytes.subarray(t * TRACK_SIZE, (t + 1) * TRACK_SIZE), false, physical, 0, order);
     tracks.push(physical);
   }
   return { format, tracks, writeProtected: false };
@@ -61,13 +74,7 @@ export function writeDsk(image: DiskImage): Uint8Array {
   const order = sectorOrderFor(image.format);
   const out = new Uint8Array(DISK_IMAGE_SIZE);
   for (let t = 0; t < TRACKS_PER_DISK; t++) {
-    const physical = image.tracks[t]!;
-    const trackOffset = t * TRACK_SIZE;
-    for (let logicalSector = 0; logicalSector < SECTORS_PER_TRACK; logicalSector++) {
-      const physicalSector = order[logicalSector]!;
-      const src = physical.subarray(physicalSector * SECTOR_SIZE, (physicalSector + 1) * SECTOR_SIZE);
-      out.set(src, trackOffset + logicalSector * SECTOR_SIZE);
-    }
+    remapTrack(image.tracks[t]!, true, out, t * TRACK_SIZE, order);
   }
   return out;
 }

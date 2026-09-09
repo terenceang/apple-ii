@@ -108,6 +108,18 @@ export class Memory implements Bus {
     this.ioWriters[addrLow] = handler;
   }
 
+  /**
+   * Registers one handler for both read and write accesses (the common case
+   * for soft switches, which are strobed by any access). Reads use the
+   * return value; the value argument carries the written byte on writes.
+   */
+  registerIo(addrLow: number, handler: (addr: number, value: number) => number): void {
+    this.ioReaders[addrLow] = (addr) => handler(addr, 0);
+    this.ioWriters[addrLow] = (addr, value) => {
+      handler(addr, value);
+    };
+  }
+
   /** Registers the auxiliary memory bank-switching soft-switch handlers ($C000-$C009). */
   attach(): void {
     const setWrite = (addrLow: number, apply: () => void): void => {
@@ -183,20 +195,24 @@ export class Memory implements Bus {
     this.ramAux[addr & 0xffff] = value & 0xff;
   }
 
+  /**
+   * Aux-memory routing for RAM addresses, shared by read() and write().
+   * 80STORE (text pages) overrides RAMRD/RAMWRT; ALTZP switches page zero/
+   * stack; RAMRD (reads) / RAMWRT (writes) route the rest of low RAM.
+   */
+  private routesToAux(addr: number, forWrite: boolean): boolean {
+    if (this.store80 && addr >= 0x0400 && addr < 0x0c00) return true;
+    if (this.altzp && addr < 0x0200) return true;
+    if (forWrite ? this.ramwrt : this.ramrd) {
+      return addr >= 0x0200 && addr < 0xc000;
+    }
+    return false;
+  }
+
   read(addr: number): number {
     addr &= 0xffff;
     if (addr < 0xc000) {
-      // Aux memory bank-switching: 80STORE overrides RAMRD for text pages.
-      if (this.store80 && ((addr >= 0x0400 && addr <= 0x07ff) || (addr >= 0x0800 && addr <= 0x0bff))) {
-        return this.ramAux[addr]!;
-      }
-      if (this.altzp && addr < 0x0200) {
-        return this.ramAux[addr]!;
-      }
-      if (this.ramrd && addr >= 0x0200 && addr < 0xc000) {
-        return this.ramAux[addr]!;
-      }
-      return this.ram[addr]!;
+      return this.routesToAux(addr, false) ? this.ramAux[addr]! : this.ram[addr]!;
     }
     if (addr <= 0xc0ff) {
       if (addr >= 0xc080 && addr <= 0xc08f) {
@@ -288,16 +304,7 @@ export class Memory implements Bus {
     addr &= 0xffff;
     value &= 0xff;
     if (addr < 0xc000) {
-      // Aux memory bank-switching: 80STORE overrides RAMWRT for text pages.
-      if (this.store80 && ((addr >= 0x0400 && addr <= 0x07ff) || (addr >= 0x0800 && addr <= 0x0bff))) {
-        this.ramAux[addr] = value;
-        return;
-      }
-      if (this.altzp && addr < 0x0200) {
-        this.ramAux[addr] = value;
-        return;
-      }
-      if (this.ramwrt && addr >= 0x0200 && addr < 0xc000) {
+      if (this.routesToAux(addr, true)) {
         this.ramAux[addr] = value;
         return;
       }

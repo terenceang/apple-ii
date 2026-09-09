@@ -39,13 +39,11 @@ export class Speaker {
   }
 
   attach(memory: Memory): void {
-    const toggle = (): number => {
+    memory.registerIo(0x30, () => {
       this.level = !this.level;
       this.edgeCycles.push(this.currentCycle);
       return 0;
-    };
-    memory.registerIoRead(0x30, toggle);
-    memory.registerIoWrite(0x30, toggle);
+    });
   }
 
   /** Renders edges recorded this frame into `count` interleaved stereo samples and resets state. */
