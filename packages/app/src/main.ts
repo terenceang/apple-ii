@@ -1,12 +1,11 @@
 import {
-  DISK_EXTENSIONS,
   MCP_BRIDGE_PORT,
   ROM_CHIP_SIZE,
   ROM_SIZE,
   ROM_SIZE_BASIC_MONITOR,
   ROM_SIZE_COMBINED_32K,
+  diskFormatFromPath,
   type BridgeCommand as McpBridgeCommand,
-  type DiskFormat,
 } from "@apple2/core";
 import { AudioSink } from "./audio/audioSink.js";
 import { isInteractiveElement, keyEventToAscii } from "./input/keyMapping.js";
@@ -21,9 +20,12 @@ import {
   type PaddleInputType,
 } from "./input/paddleMapping.js";
 import { Display } from "./ui/display.js";
-import { loadSessionMedia, saveSessionMedia } from "./ui/sessionStore.js";
+import { createDriveUi, type DriveUi } from "./ui/driveUi.js";
+import { loadSessionMedia, saveSessionMedia, type StoredMedia } from "./ui/sessionStore.js";
 import { loadRom as loadRomFromStorage, saveRom as saveRomToStorage } from "./ui/romStorage.js";
 import { clearAllClientStorage } from "./utils/storageClear.js";
+import { LS_KEYS } from "./utils/storageKeys.js";
+import { downloadBlob } from "./utils/download.js";
 import { EmulatorClient } from "./worker-client.js";
 import { arrayBufferToBase64, base64ToArrayBuffer } from "./utils/base64.js";
 import {
@@ -57,33 +59,7 @@ const volumeSlider = document.getElementById("volume-slider") as HTMLInputElemen
 const volumeValue = document.getElementById("volume-value") as HTMLSpanElement | null;
 const status = document.getElementById("status") as HTMLDivElement;
 
-const floppyLed = document.getElementById("floppy-led") as HTMLSpanElement | null;
-const screenFloppyLed = document.getElementById("screen-floppy-led") as HTMLSpanElement | null;
-const floppyStatusText = document.getElementById("floppy-status-text") as HTMLSpanElement | null;
-const diskFileInput = document.getElementById("disk-file-input") as HTMLInputElement | null;
-const diskFileText = document.getElementById("disk-file-text") as HTMLSpanElement | null;
-const diskEjectBtn = document.getElementById("disk-eject-btn") as HTMLButtonElement | null;
-const diskExportBtn = document.getElementById("disk-export-btn") as HTMLButtonElement | null;
-const floppyDriveSection = document.getElementById(
-  "floppy-drive-section",
-) as HTMLDivElement | null;
-const screenDriveBadge1 = document.getElementById(
-  "screen-drive-badge-1",
-) as HTMLSpanElement | null;
-
-const floppyLed2 = document.getElementById("floppy-led-2") as HTMLSpanElement | null;
-const screenFloppyLed2 = document.getElementById("screen-floppy-led-2") as HTMLSpanElement | null;
-const floppyStatusText2 = document.getElementById("floppy-status-text-2") as HTMLSpanElement | null;
-const diskFileInput2 = document.getElementById("disk-file-input-2") as HTMLInputElement | null;
-const diskFileText2 = document.getElementById("disk-file-text-2") as HTMLSpanElement | null;
-const diskEjectBtn2 = document.getElementById("disk-eject-btn-2") as HTMLButtonElement | null;
-const diskExportBtn2 = document.getElementById("disk-export-btn-2") as HTMLButtonElement | null;
-const floppyDriveSection2 = document.getElementById(
-  "floppy-drive-section-2",
-) as HTMLDivElement | null;
-const screenDriveBadge2 = document.getElementById(
-  "screen-drive-badge-2",
-) as HTMLSpanElement | null;
+const drives: [DriveUi, DriveUi] = [createDriveUi(0), createDriveUi(1)];
 
 const saveStateSlots = document.getElementById("save-state-slots") as HTMLDivElement | null;
 const stateThumbnail = document.getElementById("state-thumbnail") as HTMLDivElement | null;
@@ -180,8 +156,8 @@ const serverModalRetryBtn = document.getElementById(
 let modalRomData: ArrayBuffer | null = null;
 let modalRomFilename = "";
 
-const savedVolume = parseFloat(localStorage.getItem("apple2_volume") ?? "0.5");
-const savedMuted = localStorage.getItem("apple2_muted") === "true";
+const savedVolume = parseFloat(localStorage.getItem(LS_KEYS.volume) ?? "0.5");
+const savedMuted = localStorage.getItem(LS_KEYS.muted) === "true";
 const initialVolume = isNaN(savedVolume) ? 0.5 : Math.max(0, Math.min(1, savedVolume));
 
 const display = new Display(canvas);
@@ -210,33 +186,31 @@ volumeSlider?.addEventListener("input", async () => {
   const vol = Math.max(0, Math.min(1, val / 100));
   audio.setVolume(vol);
   if (audio.isMuted() && vol > 0) audio.setMuted(false);
-  localStorage.setItem("apple2_volume", vol.toString());
-  localStorage.setItem("apple2_muted", audio.isMuted().toString());
+  localStorage.setItem(LS_KEYS.volume, vol.toString());
+  localStorage.setItem(LS_KEYS.muted, audio.isMuted().toString());
   updateVolumeUi();
   await ensureAudioStarted();
 });
 
 muteBtn?.addEventListener("click", async () => {
   audio.toggleMute();
-  localStorage.setItem("apple2_muted", audio.isMuted().toString());
+  localStorage.setItem(LS_KEYS.muted, audio.isMuted().toString());
   updateVolumeUi();
   await ensureAudioStarted();
 });
 
 let paused = false;
 let romLoaded = false;
-let diskLoaded = false;
-let diskLoaded2 = false;
-let diskFilename1 = "";
-let diskFilename2 = "";
+const driveLoaded = [false, false];
+const driveFilenames = ["", ""];
 let hasPoweredOn = false;
-let libraryOpen = localStorage.getItem("apple2_library_open") === "true";
-let controlsOpen = localStorage.getItem("apple2_controls_open") === "true";
+let libraryOpen = localStorage.getItem(LS_KEYS.libraryOpen) === "true";
+let controlsOpen = localStorage.getItem(LS_KEYS.controlsOpen) === "true";
 let activeLeftTab: "disks" | "snapshots" =
-  (localStorage.getItem("apple2_left_tab") as "disks" | "snapshots" | null) ?? "disks";
+  (localStorage.getItem(LS_KEYS.leftTab) as "disks" | "snapshots" | null) ?? "disks";
 type RightTab = "machine" | "input" | "system";
 let activeRightTab: RightTab =
-  (localStorage.getItem("apple2_right_tab") as RightTab | null) ?? "machine";
+  (localStorage.getItem(LS_KEYS.rightTab) as RightTab | null) ?? "machine";
 let pendingDiskEntry: DiskEntry | null = null;
 let libraryFilterText = "";
 const selectedDiskIds = new Set<string>();
@@ -255,7 +229,7 @@ function setPaused(value: boolean): void {
 
 function setLeftTab(tab: "disks" | "snapshots"): void {
   activeLeftTab = tab;
-  localStorage.setItem("apple2_left_tab", tab);
+  localStorage.setItem(LS_KEYS.leftTab, tab);
   if (panelDisksTab) panelDisksTab.style.display = tab === "disks" ? "flex" : "none";
   if (panelSnapshotsTab) panelSnapshotsTab.style.display = tab === "snapshots" ? "flex" : "none";
   diskLibraryToggle?.classList.toggle("active", libraryOpen && tab === "disks");
@@ -264,7 +238,7 @@ function setLeftTab(tab: "disks" | "snapshots"): void {
 
 function setRightTab(tab: RightTab): void {
   activeRightTab = tab;
-  localStorage.setItem("apple2_right_tab", tab);
+  localStorage.setItem(LS_KEYS.rightTab, tab);
   if (panelControlsMachineTab)
     panelControlsMachineTab.style.display = tab === "machine" ? "flex" : "none";
   if (panelControlsInputTab) panelControlsInputTab.style.display = tab === "input" ? "flex" : "none";
@@ -409,6 +383,17 @@ function closeModal(el: HTMLElement): void {
   el.style.display = "none";
 }
 
+const MODALS = [serverModal, setupModal, paddleModal, confirmLoadModal];
+
+function isModalOpen(): boolean {
+  return MODALS.some((m) => m.style.display !== "none");
+}
+
+function dismissConfirmLoad(): void {
+  closeModal(confirmLoadModal);
+  pendingDiskEntry = null;
+}
+
 function showSetupModal(): void {
   openModal(setupModal);
   modalRomData = null;
@@ -434,10 +419,7 @@ function wireModalBackdrop(modal: HTMLElement, onClose: () => void): void {
 wireModalBackdrop(setupModal, () => {
   if (romLoaded) hideSetupModal();
 });
-wireModalBackdrop(confirmLoadModal, () => {
-  closeModal(confirmLoadModal);
-  pendingDiskEntry = null;
-});
+wireModalBackdrop(confirmLoadModal, () => dismissConfirmLoad());
 wireModalBackdrop(paddleModal, () => closeModal(paddleModal));
 
 function updateRomUi(filename?: string): void {
@@ -497,88 +479,29 @@ function formatRomFilename(files: File[]): string {
     .join(", ");
 }
 
-const lastLoggedMotorOn = [false, false];
-const lastLoggedTrack = [-1, -1];
-
 /** Reflects a disk insert into both drive sections' filename/eject/state UI. */
 function markDriveLoaded(drive: 0 | 1, filename: string): void {
-  if (drive === 1) {
-    diskLoaded2 = true;
-    diskFilename2 = filename;
-    if (diskFileText2) diskFileText2.textContent = filename;
-    if (diskEjectBtn2) diskEjectBtn2.disabled = false;
-    floppyDriveSection2?.classList.add("has-disk");
-    if (screenDriveBadge2) {
-      screenDriveBadge2.classList.add("loaded");
-      screenDriveBadge2.title = `Drive 2 — loaded: ${filename}`;
-    }
-  } else {
-    diskLoaded = true;
-    diskFilename1 = filename;
-    if (diskFileText) diskFileText.textContent = filename;
-    if (diskEjectBtn) diskEjectBtn.disabled = false;
-    floppyDriveSection?.classList.add("has-disk");
-    if (screenDriveBadge1) {
-      screenDriveBadge1.classList.add("loaded");
-      screenDriveBadge1.title = `Drive 1 — loaded: ${filename}`;
-    }
-  }
+  driveLoaded[drive] = true;
+  driveFilenames[drive] = filename;
+  drives[drive].setLoaded(filename);
 }
 
 /** Resets a drive section to the empty state (text, input, eject, LEDs, status). */
 function clearDriveUi(drive: 0 | 1): void {
-  if (drive === 1) {
-    diskLoaded2 = false;
-    diskFilename2 = "";
-    if (diskFileText2) diskFileText2.textContent = "Insert Disk…";
-    if (diskFileInput2) diskFileInput2.value = "";
-    if (diskEjectBtn2) diskEjectBtn2.disabled = true;
-    if (floppyLed2) floppyLed2.classList.remove("active");
-    if (screenFloppyLed2) screenFloppyLed2.classList.remove("active");
-    if (floppyStatusText2) floppyStatusText2.textContent = "No disk inserted";
-    floppyDriveSection2?.classList.remove("has-disk");
-    if (screenDriveBadge2) {
-      screenDriveBadge2.classList.remove("loaded");
-      screenDriveBadge2.title = "Drive 2 — empty";
-    }
-  } else {
-    diskLoaded = false;
-    diskFilename1 = "";
-    if (diskFileText) diskFileText.textContent = "Insert Disk…";
-    if (diskFileInput) diskFileInput.value = "";
-    if (diskEjectBtn) diskEjectBtn.disabled = true;
-    if (floppyLed) floppyLed.classList.remove("active");
-    if (screenFloppyLed) screenFloppyLed.classList.remove("active");
-    if (floppyStatusText) floppyStatusText.textContent = "No disk inserted";
-    floppyDriveSection?.classList.remove("has-disk");
-    if (screenDriveBadge1) {
-      screenDriveBadge1.classList.remove("loaded");
-      screenDriveBadge1.title = "Drive 1 — empty";
-    }
-  }
+  driveLoaded[drive] = false;
+  driveFilenames[drive] = "";
+  drives[drive].clear();
 }
+
+const lastLoggedMotorOn = [false, false];
+const lastLoggedTrack = [-1, -1];
 
 client.onDiskStatus = (diskStatus) => {
   const drive = diskStatus.drive as 0 | 1;
-  const led = drive === 1 ? floppyLed2 : floppyLed;
-  const screenLed = drive === 1 ? screenFloppyLed2 : screenFloppyLed;
-  const statusText = drive === 1 ? floppyStatusText2 : floppyStatusText;
-  const exportBtn = drive === 1 ? diskExportBtn2 : diskExportBtn;
+  drives[drive].setActivity(diskStatus.motorOn, diskStatus.inserted, diskStatus.track);
 
-  if (led) led.classList.toggle("active", diskStatus.motorOn);
-  if (screenLed) screenLed.classList.toggle("active", diskStatus.motorOn);
-  if (statusText) {
-    statusText.textContent = diskStatus.inserted
-      ? `Track ${diskStatus.track}${diskStatus.motorOn ? " (active)" : ""}`
-      : "No disk inserted";
-  }
-  if (diskStatus.inserted) {
-    if (drive === 1) diskLoaded2 = true;
-    else diskLoaded = true;
-  } else {
-    clearDriveUi(drive);
-  }
-  if (exportBtn) exportBtn.disabled = !diskStatus.inserted;
+  if (diskStatus.inserted) driveLoaded[drive] = true;
+  else clearDriveUi(drive);
 
   if (diskStatus.motorOn !== lastLoggedMotorOn[drive]) {
     logEvent(
@@ -592,16 +515,8 @@ client.onDiskStatus = (diskStatus) => {
   lastLoggedTrack[drive] = diskStatus.track;
 };
 
-function diskExtFromFilename(name: string): DiskFormat | null {
-  const lower = name.toLowerCase();
-  for (const [ext, format] of Object.entries(DISK_EXTENSIONS)) {
-    if (lower.endsWith(ext)) return format;
-  }
-  return null;
-}
-
 async function insertDiskFileIntoDrive(file: File, drive: 0 | 1): Promise<void> {
-  const format = diskExtFromFilename(file.name);
+  const format = diskFormatFromPath(file.name);
   if (!format) {
     setStatus(`Unrecognized disk file: "${file.name}" (expected .dsk/.po)`, "warn");
     return;
@@ -617,35 +532,26 @@ async function insertDiskFileIntoDrive(file: File, drive: 0 | 1): Promise<void> 
   setStatus(`Inserted disk "${file.name}" into drive ${drive + 1}.`);
 }
 
-diskFileInput?.addEventListener("change", async () => {
-  const file = diskFileInput.files?.[0];
-  if (!file) return;
-  diskFileInput.value = "";
-  await insertDiskFileIntoDrive(file, 0);
-});
+async function ejectDrive(drive: 0 | 1): Promise<void> {
+  logEvent(`Ejecting disk from drive ${drive + 1}.`, "debug");
+  client.ejectDisk(drive);
+  clearDriveUi(drive);
+  await saveSessionMedia(null, drive);
+  setStatus(`Disk ejected from drive ${drive + 1}.`);
+}
 
-diskEjectBtn?.addEventListener("click", async () => {
-  logEvent("Ejecting disk from drive 1.", "debug");
-  client.ejectDisk(0);
-  clearDriveUi(0);
-  await saveSessionMedia(null, 0);
-  setStatus("Disk ejected from drive 1.");
-});
-
-diskFileInput2?.addEventListener("change", async () => {
-  const file = diskFileInput2.files?.[0];
-  if (!file) return;
-  diskFileInput2.value = "";
-  await insertDiskFileIntoDrive(file, 1);
-});
-
-diskEjectBtn2?.addEventListener("click", async () => {
-  logEvent("Ejecting disk from drive 2.", "debug");
-  client.ejectDisk(1);
-  clearDriveUi(1);
-  await saveSessionMedia(null, 1);
-  setStatus("Disk ejected from drive 2.");
-});
+for (const ui of drives) {
+  ui.el.fileInput?.addEventListener("change", async () => {
+    const input = ui.el.fileInput;
+    if (!input) return;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = "";
+    await insertDiskFileIntoDrive(file, ui.drive);
+  });
+  ui.el.ejectBtn?.addEventListener("click", () => void ejectDrive(ui.drive));
+  ui.el.exportBtn?.addEventListener("click", () => void exportDriveImage(ui.drive));
+}
 
 // Round-trips through the worker: disks are deliberately excluded from save
 // states (see state.ts), and the running program may have written to the
@@ -656,20 +562,10 @@ async function exportDriveImage(drive: 0 | 1): Promise<void> {
     setStatus(`No disk inserted in drive ${drive + 1}.`, "warn");
     return;
   }
-  const insertedName = drive === 1 ? diskFilename2 : diskFilename1;
-  const name = insertedName || `drive${drive + 1}.${result.format}`;
-  const blob = new Blob([result.data], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
+  const name = driveFilenames[drive] || `drive${drive + 1}.${result.format}`;
+  downloadBlob(result.data, name, "application/octet-stream");
   setStatus(`Exported "${name}" from drive ${drive + 1} (includes writes made by running programs).`);
 }
-
-diskExportBtn?.addEventListener("click", () => void exportDriveImage(0));
-diskExportBtn2?.addEventListener("click", () => void exportDriveImage(1));
 
 let activeSaveStateSlot = 1;
 
@@ -766,13 +662,7 @@ deleteStateBtn?.addEventListener("click", () => void deleteCurrentSlot());
 saveSnapshotBtn?.addEventListener("click", async () => {
   const entry = await loadStateFromStorage(activeSaveStateSlot);
   if (!entry) return;
-  const blob = new Blob([entry.data], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `slot${activeSaveStateSlot}.a2state`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(entry.data, `slot${activeSaveStateSlot}.a2state`, "application/octet-stream");
 });
 
 async function importSnapshotFile(file: File): Promise<void> {
@@ -815,16 +705,14 @@ async function restoreSession(): Promise<void> {
     client.loadRom(storedRom.data.slice(0));
     romLoaded = true;
 
-    const storedMedia1 = await loadSessionMedia(0);
-    if (storedMedia1) {
-      client.loadDisk(storedMedia1.format, storedMedia1.data.slice(0), 0);
-      markDriveLoaded(0, storedMedia1.filename);
-    }
-
-    const storedMedia2 = await loadSessionMedia(1);
-    if (storedMedia2) {
-      client.loadDisk(storedMedia2.format, storedMedia2.data.slice(0), 1);
-      markDriveLoaded(1, storedMedia2.filename);
+    const storedMedia: [StoredMedia | null, StoredMedia | null] = [null, null];
+    for (const drive of [0, 1] as const) {
+      const media = await loadSessionMedia(drive);
+      storedMedia[drive] = media;
+      if (media) {
+        client.loadDisk(media.format, media.data.slice(0), drive);
+        markDriveLoaded(drive, media.filename);
+      }
     }
 
     await audio.start(client);
@@ -833,11 +721,7 @@ async function restoreSession(): Promise<void> {
       hasPoweredOn = true;
       client.reset();
       setPaused(false);
-      if (storedMedia1) {
-        setStatus(`ROM restored (${storedRom.filename}). Loaded "${storedMedia1.filename}". Ready.`);
-      } else {
-        setStatus(`ROM restored (${storedRom.filename}). Insert a disk to boot, or use the Monitor.`);
-      }
+      setStatus(romRestoredStatus(storedRom.filename, storedMedia[0]));
     } else {
       hasPoweredOn = false;
       setPaused(true);
@@ -961,7 +845,7 @@ function toggleLibrary(): void {
   libraryOpen = !libraryOpen;
   diskLibraryPanel.classList.toggle("open", libraryOpen);
   document.body.classList.toggle("library-open", libraryOpen);
-  localStorage.setItem("apple2_library_open", libraryOpen.toString());
+  localStorage.setItem(LS_KEYS.libraryOpen, libraryOpen.toString());
   diskLibraryToggle?.classList.toggle("active", libraryOpen && activeLeftTab === "disks");
   snapshotsPanelToggle?.classList.toggle("active", libraryOpen && activeLeftTab === "snapshots");
   if (libraryOpen && controlsOpen) toggleControls();
@@ -977,7 +861,7 @@ function toggleControls(): void {
   controlsOpen = !controlsOpen;
   controlsPanel.classList.toggle("open", controlsOpen);
   document.body.classList.toggle("controls-open", controlsOpen);
-  localStorage.setItem("apple2_controls_open", controlsOpen.toString());
+  localStorage.setItem(LS_KEYS.controlsOpen, controlsOpen.toString());
   setRightTab(activeRightTab);
   if (controlsOpen && libraryOpen) toggleLibrary();
 }
@@ -997,7 +881,7 @@ async function onLibraryFileSelect(files: FileList | null): Promise<void> {
   if (!files) return;
   let added = 0;
   for (const file of Array.from(files)) {
-    const format = diskExtFromFilename(file.name);
+    const format = diskFormatFromPath(file.name);
     if (!format) continue;
     const data = await file.arrayBuffer();
     await addDisk({ name: stripExtension(file.name), filename: file.name, format, data: data.slice(0) });
@@ -1014,14 +898,14 @@ function onLibraryDiskClick(entry: DiskEntry): void {
     return;
   }
   pendingDiskEntry = entry;
-  if (!diskLoaded && !diskLoaded2) {
+  if (!driveLoaded[0] && !driveLoaded[1]) {
     void loadDiskFromLibrary(0);
     return;
   }
   confirmLoadName.textContent = entry.filename;
   if (confirmLoadText) {
-    const d1Info = diskLoaded ? `Drive 1: ${diskFilename1 || "inserted"}` : "Drive 1: empty";
-    const d2Info = diskLoaded2 ? `Drive 2: ${diskFilename2 || "inserted"}` : "Drive 2: empty";
+    const d1Info = driveLoaded[0] ? `Drive 1: ${driveFilenames[0] || "inserted"}` : "Drive 1: empty";
+    const d2Info = driveLoaded[1] ? `Drive 2: ${driveFilenames[1] || "inserted"}` : "Drive 2: empty";
     confirmLoadText.textContent = `Select drive to insert disk into (${d1Info} · ${d2Info}):`;
   }
   openModal(confirmLoadModal);
@@ -1030,8 +914,7 @@ function onLibraryDiskClick(entry: DiskEntry): void {
 async function loadDiskFromLibrary(drive: 0 | 1 = 0): Promise<void> {
   const entry = pendingDiskEntry;
   if (!entry) return;
-  confirmLoadModal.style.display = "none";
-  pendingDiskEntry = null;
+  dismissConfirmLoad();
 
   hasPoweredOn = true;
   await ensureAudioStarted();
@@ -1075,7 +958,7 @@ document.body.addEventListener("drop", async (e) => {
   if (!files || files.length === 0) return;
   const all = Array.from(files);
   const isRom = (f: File) => /\.(rom|bin)$/i.test(f.name);
-  const isDisk = (f: File) => diskExtFromFilename(f.name) !== null;
+  const isDisk = (f: File) => diskFormatFromPath(f.name) !== null;
   const isSnapshot = (f: File) => f.name.toLowerCase().endsWith(".a2state");
   if (all.length === 1 && isSnapshot(all[0]!)) {
     await importSnapshotFile(all[0]!);
@@ -1238,22 +1121,13 @@ diskLibraryBulkClearBtn.addEventListener("click", () => {
   void renderLibrary();
 });
 
-confirmLoadCancel.addEventListener("click", () => {
-  confirmLoadModal.style.display = "none";
-  pendingDiskEntry = null;
-});
+confirmLoadCancel.addEventListener("click", () => dismissConfirmLoad());
 confirmLoadPlay.addEventListener("click", () => void loadDiskFromLibrary(0));
 confirmLoadDrive2?.addEventListener("click", () => void loadDiskFromLibrary(1));
 
 saveLogBtn?.addEventListener("click", () => {
   const text = logEntries.map((e) => `[${e.timestamp}] ${e.message}`).join("\n");
-  const blob = new Blob([text], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "apple2-log.txt";
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(text, "apple2-log.txt", "text/plain");
 });
 clearLogBtn?.addEventListener("click", () => {
   logEntries.length = 0;
@@ -1350,7 +1224,7 @@ document.addEventListener("pointerdown", (e) => {
 });
 
 paddleSetupBtn?.addEventListener("click", () => openModal(paddleModal));
-paddleCloseBtn.addEventListener("click", () => (paddleModal.style.display = "none"));
+paddleCloseBtn.addEventListener("click", () => closeModal(paddleModal));
 paddleResetBtn.addEventListener("click", () => {
   paddleKeyBindings = { ...DEFAULT_PADDLE_KEY_BINDINGS };
   savePaddleKeyBindings(paddleKeyBindings);
@@ -1425,6 +1299,12 @@ function pollPaddles(): void {
 const activeAsciiByCode = new Map<string, number>();
 let lastKeyboardHintAt = 0;
 
+function romRestoredStatus(romFilename: string | undefined, media: StoredMedia | null): string {
+  return media
+    ? `ROM restored (${romFilename ?? "Apple //e"}). Loaded "${media.filename}". Ready.`
+    : `ROM restored (${romFilename ?? "Apple //e"}). Insert a disk to boot, or use the Monitor.`;
+}
+
 async function onFirstGesture(): Promise<boolean> {
   await ensureAudioStarted();
   if (romLoaded && !hasPoweredOn) {
@@ -1433,11 +1313,7 @@ async function onFirstGesture(): Promise<boolean> {
     setPaused(false);
     const storedRom = loadRomFromStorage();
     const storedMedia = await loadSessionMedia();
-    if (storedMedia) {
-      setStatus(`ROM restored (${storedRom?.filename ?? "Apple //e"}). Loaded "${storedMedia.filename}". Ready.`);
-    } else {
-      setStatus(`ROM restored (${storedRom?.filename ?? "Apple //e"}). Insert a disk to boot, or use the Monitor.`);
-    }
+    setStatus(romRestoredStatus(storedRom?.filename, storedMedia));
     return true;
   }
   return false;
@@ -1483,18 +1359,12 @@ window.addEventListener("keydown", (e) => {
     }
     if (confirmLoadModal.style.display !== "none") {
       e.preventDefault();
-      closeModal(confirmLoadModal);
-      pendingDiskEntry = null;
+      dismissConfirmLoad();
       return;
     }
   }
   // With a modal overlaying the screen, keys must not reach the machine.
-  if (
-    serverModal.style.display !== "none" ||
-    setupModal.style.display !== "none" ||
-    paddleModal.style.display !== "none" ||
-    confirmLoadModal.style.display !== "none"
-  ) {
+  if (isModalOpen()) {
     if (!e.repeat) logEvent(`key ${e.code} ignored — a modal is open`, "debug");
     return;
   }
@@ -1549,7 +1419,7 @@ window.addEventListener("keydown", (e) => {
     if (paused) {
       lastKeyboardHintAt = now;
       setStatus("Emulation is paused — press Resume (or the Pause button) for keystrokes to register.", "warn");
-    } else if (!diskLoaded && !diskLoaded2 && hasPoweredOn) {
+    } else if (!driveLoaded[0] && !driveLoaded[1] && hasPoweredOn) {
       lastKeyboardHintAt = now;
       setStatus("No disk inserted — the boot ROM is waiting on the drive. Press Reset for the BASIC prompt, or insert a disk.", "warn");
     }
@@ -1651,7 +1521,7 @@ const mcpInstanceId = Math.random().toString(36).slice(2, 8);
 const mcpIndicator = document.getElementById("mcp-indicator") as HTMLDivElement;
 const mcpIndicatorText = document.getElementById("mcp-indicator-text") as HTMLSpanElement;
 
-let mcpEnabled = localStorage.getItem("apple2_mcp_enabled") === "true";
+let mcpEnabled = localStorage.getItem(LS_KEYS.mcpEnabled) === "true";
 let mcpWs: WebSocket | null = null;
 let mcpReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let mcpReconnectDelay = 2000;
@@ -1679,9 +1549,18 @@ function disconnectMcpBridge(): void {
 
 function setMcpEnabled(enabled: boolean): void {
   mcpEnabled = enabled;
-  localStorage.setItem("apple2_mcp_enabled", String(enabled));
+  localStorage.setItem(LS_KEYS.mcpEnabled, String(enabled));
   if (enabled) {
-connectMcpBridge();
+    connectMcpBridge();
+  } else {
+    disconnectMcpBridge();
+  }
+}
+
+mcpIndicator.style.cursor = "pointer";
+mcpIndicator.title = "Click to toggle MCP bridge";
+mcpIndicator.addEventListener("click", () => setMcpEnabled(!mcpEnabled));
+setMcpConnected(false);
 
 // ---- Server heartbeat ----
 
@@ -1733,20 +1612,11 @@ serverModalRetryBtn.addEventListener("click", () => {
 });
 
 void heartbeat();
-  } else {
-    disconnectMcpBridge();
-  }
-}
-
-mcpIndicator.style.cursor = "pointer";
-mcpIndicator.title = "Click to toggle MCP bridge";
-mcpIndicator.addEventListener("click", () => setMcpEnabled(!mcpEnabled));
-setMcpConnected(false);
 
 async function handleMcpCommand(message: McpBridgeCommand): Promise<unknown> {
   switch (message.cmd) {
     case "getStatus":
-      return { romLoaded, paused, diskLoaded, diskLoaded2 };
+      return { romLoaded, paused, diskLoaded: driveLoaded[0], diskLoaded2: driveLoaded[1] };
     case "readScreen":
       return { pngBase64: canvas.toDataURL("image/png").split(",")[1] };
     case "saveSnapshot": {

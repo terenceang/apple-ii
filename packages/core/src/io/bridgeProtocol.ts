@@ -3,11 +3,7 @@ import { DISK_EXTENSIONS } from "../disk/dsk.js";
 
 export const MCP_BRIDGE_PORT = 8791;
 
-export const SNAPSHOT_EXTENSIONS = { ".a2state": "a2state" } as const;
-export type SnapshotFormat = (typeof SNAPSHOT_EXTENSIONS)[keyof typeof SNAPSHOT_EXTENSIONS];
-
 export { DISK_EXTENSIONS };
-export type MediaFormat = SnapshotFormat | DiskFormat;
 
 export type BridgeCommand =
   | { reqId: string; cmd: "getStatus" }

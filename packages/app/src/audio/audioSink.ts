@@ -119,10 +119,6 @@ export class AudioSink {
     return this.muted;
   }
 
-  suspend(): void {
-    void this.audioContext?.suspend();
-  }
-
   async resume(): Promise<void> {
     if (this.audioContext && this.audioContext.state === "suspended") {
       try {

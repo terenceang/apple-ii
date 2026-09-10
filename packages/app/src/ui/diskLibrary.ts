@@ -1,5 +1,6 @@
 import type { DiskFormat } from "@apple2/core";
 import { idbRequest, idbTx, openDb } from "../utils/idb.js";
+import { IDB_DATABASES } from "../utils/storageKeys.js";
 
 export interface DiskEntry {
   id: string;
@@ -10,7 +11,7 @@ export interface DiskEntry {
   addedAt: number;
 }
 
-const DB_NAME = "apple2-disks";
+const DB_NAME = IDB_DATABASES.disks;
 const STORE_NAME = "disks";
 
 function openDisksDb(): Promise<IDBDatabase> {
@@ -52,7 +53,7 @@ export async function getAllDisks(): Promise<DiskEntry[]> {
   return result.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-export async function getDisk(id: string): Promise<DiskEntry | null> {
+async function getDisk(id: string): Promise<DiskEntry | null> {
   const db = await openDisksDb();
   const tx = db.transaction(STORE_NAME, "readonly");
   const result = await idbRequest<DiskEntry | undefined>(tx.objectStore(STORE_NAME).get(id));

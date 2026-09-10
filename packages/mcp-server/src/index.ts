@@ -3,11 +3,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import {
   APPLE_II_PALETTE_RGB,
   AppleIIe,
-  DISK_EXTENSIONS,
+  FPS,
   ROM_CHIP_SIZE,
   ROM_SIZE,
   ROM_SIZE_BASIC_MONITOR,
   ROM_SIZE_COMBINED_32K,
+  SPECIAL_KEY_CODES,
+  diskFormatFromPath,
   loadState,
   parseDsk,
   saveState,
@@ -28,32 +30,19 @@ function requireMachine(): AppleIIe {
   return machine;
 }
 
-const SPECIAL_KEYS: Record<string, number> = {
-  Enter: 0x0d,
-  Escape: 0x1b,
-  Tab: 0x09,
-  Space: 0x20,
-  Backspace: 0x7f,
-  Delete: 0x7f,
-  ArrowLeft: 0x08,
-  ArrowRight: 0x15,
-  ArrowUp: 0x0b,
-  ArrowDown: 0x0a,
-};
-
 function keyToAscii(key: string): number {
   if (key.length === 1) return key.charCodeAt(0) & 0x7f;
-  const special = SPECIAL_KEYS[key];
+  const special = SPECIAL_KEY_CODES[key];
   if (special !== undefined) return special;
-  throw new Error(`Unknown key "${key}" — pass a single character or one of: ${Object.keys(SPECIAL_KEYS).join(", ")}`);
+  throw new Error(`Unknown key "${key}" — pass a single character or one of: ${Object.keys(SPECIAL_KEY_CODES).join(", ")}`);
 }
 
 function detectDiskFormat(path: string): DiskFormat {
-  const lower = path.toLowerCase();
-  for (const [ext, format] of Object.entries(DISK_EXTENSIONS)) {
-    if (lower.endsWith(ext)) return format;
+  const format = diskFormatFromPath(path);
+  if (!format) {
+    throw new Error(`Unrecognized disk file extension for "${path}" (expected .dsk/.po)`);
   }
-  throw new Error(`Unrecognized disk file extension for "${path}" (expected .dsk/.po)`);
+  return format;
 }
 
 const server = new McpServer({ name: "apple2", version: "0.5.0" });
@@ -174,7 +163,7 @@ server.registerTool(
   async ({ count, instanceId }) => {
     const target = resolveInstance(instanceId);
     if (target) {
-      await new Promise((resolve) => setTimeout(resolve, count * 17));
+      await new Promise((resolve) => setTimeout(resolve, Math.round((count * 1000) / FPS)));
       return { content: [{ type: "text", text: `Waited ${count} frame(s) of real time on instance "${target}".` }] };
     }
     const m = requireMachine();
@@ -189,7 +178,7 @@ server.registerTool(
     title: "Press/release a key",
     description:
       "Sets one key up or down (a single character, or a named key: " +
-      `${Object.keys(SPECIAL_KEYS).join(", ")}). A key must stay held for a few run_frames calls ` +
+      `${Object.keys(SPECIAL_KEY_CODES).join(", ")}). A key must stay held for a few run_frames calls ` +
       "for the ROM's keyboard read to register it — press down, run_frames, then press up.",
     inputSchema: { key: z.string(), down: z.boolean(), ...instanceIdSchema },
   },

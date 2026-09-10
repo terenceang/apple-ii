@@ -1,6 +1,5 @@
 import { arrayBufferToBase64, base64ToArrayBuffer } from "../utils/base64.js";
-
-const ROM_KEY = "apple2_rom";
+import { LS_KEYS } from "../utils/storageKeys.js";
 
 export interface StoredRom {
   filename: string;
@@ -9,11 +8,11 @@ export interface StoredRom {
 
 export function saveRom(rom: StoredRom): void {
   const payload = JSON.stringify({ filename: rom.filename, data: arrayBufferToBase64(rom.data) });
-  localStorage.setItem(ROM_KEY, payload);
+  localStorage.setItem(LS_KEYS.rom, payload);
 }
 
 export function loadRom(): StoredRom | null {
-  const raw = localStorage.getItem(ROM_KEY);
+  const raw = localStorage.getItem(LS_KEYS.rom);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as { filename: string; data: string };
@@ -24,5 +23,5 @@ export function loadRom(): StoredRom | null {
 }
 
 export function clearRom(): void {
-  localStorage.removeItem(ROM_KEY);
+  localStorage.removeItem(LS_KEYS.rom);
 }

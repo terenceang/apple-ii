@@ -5,13 +5,14 @@
 ```
 npm run dev         # build MCP server, start it, then Vite dev server
 npm run build        # build all packages in dependency order
+npm run serve        # build everything, then serve packages/app/dist via the express server (:8080)
 npm test             # vitest (packages/*/src/**/*.test.ts)
 npm run typecheck    # tsc -b (composite project references)
 npm run lint         # eslint .
 npm run test:all     # typecheck + lint + test (pre-merge gate)
 ```
 
-Build order matters: `core` → `worker` → `app` → `mcp-server`. The root `npm run build` handles this.
+Build order matters: `core` → `worker` → `app` → `mcp-server` → `server`. The root `npm run build` handles this.
 
 ## Monorepo structure
 
@@ -20,9 +21,10 @@ packages/core/      6502 CPU, memory/language-card, video, speaker, Disk II, sav
 packages/worker/    Web Worker host, shared-memory frame/audio ring buffers
 packages/app/       Vite browser app, UI, input mapping, AudioWorklet, IndexedDB storage
 packages/mcp-server/ MCP tool server + WebSocket bridge (ws://localhost:8791)
+packages/server/    Express 5 static server for packages/app/dist + /healthz heartbeat endpoint
 ```
 
-Dependency chain: `worker` → `core`; `app` → `core` + `worker`; `mcp-server` → `core`.
+Dependency chain: `worker` → `core`; `app` → `core` + `worker`; `mcp-server` → `core`; `server` → (standalone).
 
 ## Toolchain
 
@@ -33,7 +35,7 @@ Dependency chain: `worker` → `core`; `app` → `core` + `worker`; `mcp-server`
 
 ## ROM files
 
-No ROM is bundled in the repo (Apple copyright). The `rom/` directory contains local dumps that are not gitignored — do not commit them. The emulator accepts:
+No ROM is bundled in the repo (Apple copyright). The `rom/` and `Disk/` directories are gitignored local dumps — never commit them. The emulator accepts:
 - 16KB combined CD+EF dump
 - Two 8KB chip dumps (CD + EF)
 - 12KB basic/monitor-only dump ($D000-$FFFF)
@@ -61,6 +63,13 @@ The MCP server runs headlessly via stdio (`apple2-mcp` binary). When a browser t
   fields are labeled with physical sector numbers (0..15); DOS 3.3 RWTS handles logical-to-physical
   interleaving in software via its internal `SECTBL` ($3FB8).
 - The MCP png test needs no build (png.ts only imports node:zlib)
+
+## Single sources of truth
+
+- Shared constants/types live in `core`: `SPECIAL_KEY_CODES` (io/keyboardCodes.ts), `diskFormatFromPath` + `DISK_EXTENSIONS` (disk/dsk.ts), `Frame` (machines/appleIIe.ts), MCP port + wire commands (io/bridgeProtocol.ts)
+- `worker/protocol.ts` derives frame/audio constants from core's `FPS`/screen sizes and re-exports `Frame`/`DiskStatus` — never restate them elsewhere
+- Browser storage keys + IndexedDB names: `app/src/utils/storageKeys.ts` (`storageClear.ts` derives its purge list from it, so new keys are covered automatically)
+- Drive UI is created per-drive via `app/src/ui/driveUi.ts` (`createDriveUi(0|1)`) — do not add per-drive DOM refs or branchy `drive === 1` UI copies
 
 ## Code style
 

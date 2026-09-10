@@ -2,9 +2,9 @@
 
 A browser-based Apple //e (Enhanced) emulator written in pure TypeScript, with the 6502 CPU and
 machine running in a Web Worker off the main thread. Built the same way as the ZX Spectrum
-emulator this repo is a sibling of: a small monorepo (`core` / `worker` / `app` / `mcp-server`),
-zero-latency `AudioWorklet` audio, disk-image support, save states, and an MCP bridge so an AI
-agent (or any MCP client) can drive a running instance.
+emulator this repo is a sibling of: a small monorepo (`core` / `worker` / `app` / `mcp-server` /
+`server`), zero-latency `AudioWorklet` audio, disk-image support, save states, and an MCP bridge
+so an AI agent (or any MCP client) can drive a running instance.
 
 ## Quickstart
 
@@ -74,7 +74,10 @@ the scope of this README.
 - An MCP server (`packages/mcp-server`) exposing `load_rom`, `insert_disk`, `eject_disk`,
   `reset`, `run_frames`, `press_key`, `type_text`, `read_screen`, `save_snapshot`,
   `load_snapshot`, `get_status`, and `list_instances` — usable headlessly or against a live
-  connected browser tab (the app auto-connects to `ws://localhost:8791`).
+  connected browser tab (connect via the MCP indicator in the app's System tab; disabled by
+  default).
+- Server-gated page: the app polls `/healthz` on its origin every 5 s; if the serving server
+  stops responding, the page is disabled behind a "Not Connected" modal until it responds again.
 
 ## Known limitations (deliberate v1 cuts)
 
@@ -103,6 +106,7 @@ packages/
   worker/       Web Worker host + shared-memory frame/audio ring buffers
   app/          Vite app: UI, input mapping, audio, IndexedDB-backed storage
   mcp-server/   MCP tool server + browser bridge (WebSocket, ws://localhost:8791)
+  server/       Express 5 static server for the built app + /healthz heartbeat
 ```
 
 ## Scripts
@@ -110,7 +114,9 @@ packages/
 ```
 npm run dev         # builds the MCP server, runs it, and starts the Vite dev server
 npm run build        # builds all packages in dependency order
+npm run serve        # builds everything and serves packages/app/dist at http://localhost:8080
 npm test              # runs the vitest suite
 npm run typecheck  # tsc -b across the whole monorepo
 npm run lint            # eslint .
+npm run test:all      # typecheck + lint + test (pre-merge gate)
 ```

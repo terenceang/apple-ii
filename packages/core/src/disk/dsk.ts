@@ -54,6 +54,14 @@ function remapTrack(
   }
 }
 
+export function diskFormatFromPath(path: string): DiskFormat | null {
+  const lower = path.toLowerCase();
+  for (const [ext, format] of Object.entries(DISK_EXTENSIONS)) {
+    if (lower.endsWith(ext)) return format;
+  }
+  return null;
+}
+
 export function parseDsk(bytes: Uint8Array, format: DiskFormat): DiskImage {
   if (bytes.length !== DISK_IMAGE_SIZE) {
     throw new Error(

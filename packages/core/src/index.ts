@@ -12,6 +12,7 @@ export {
 } from "./memory/constants.js";
 
 export { Keyboard } from "./io/keyboard.js";
+export { SPECIAL_KEY_CODES } from "./io/keyboardCodes.js";
 export { Paddle } from "./io/paddle.js";
 export * from "./io/bridgeProtocol.js";
 
@@ -36,6 +37,7 @@ export {
   SECTOR_SIZE,
   parseDsk,
   writeDsk,
+  diskFormatFromPath,
 } from "./disk/dsk.js";
 export type { DiskImage, DiskFormat } from "./disk/dsk.js";
 export { DiskII } from "./disk/diskII.js";

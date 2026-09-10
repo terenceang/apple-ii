@@ -1,16 +1,17 @@
-import type { DiskFormat } from "@apple2/core";
+import type { DiskFormat, Frame } from "@apple2/core";
 import {
   AUDIO_CAPACITY_FLOATS,
   MAX_FRAME_HEIGHT,
   MAX_FRAME_WIDTH,
   audioBufferByteLength,
   frameBufferByteLength,
+  type DiskStatus,
   type HostToWorkerMessage,
   type WorkerToHostMessage,
 } from "../../worker/src/protocol.js";
 import { FrameRingReader } from "../../worker/src/ring-buffers.js";
 
-export type Frame = { pixels: Uint8Array; width: number; height: number };
+export type { Frame };
 export type ExportedDisk = { format: DiskFormat; data: ArrayBuffer };
 
 export class EmulatorClient {
@@ -28,7 +29,7 @@ export class EmulatorClient {
 
   onReady?: () => void;
   onError?: (message: string) => void;
-  onDiskStatus?: (status: { drive: number; inserted: boolean; motorOn: boolean; track: number }) => void;
+  onDiskStatus?: (status: DiskStatus) => void;
 
   constructor() {
     this.worker = new Worker(new URL("../../worker/src/emulator.worker.ts", import.meta.url), {
@@ -55,12 +56,7 @@ export class EmulatorClient {
       if (message.type === "ready") this.onReady?.();
       else if (message.type === "error") this.onError?.(message.message);
       else if (message.type === "diskStatus") {
-        this.onDiskStatus?.({
-          drive: message.drive,
-          inserted: message.inserted,
-          motorOn: message.motorOn,
-          track: message.track,
-        });
+        this.onDiskStatus?.(message);
       } else if (message.type === "frame") {
         this.fallbackFrameCount++;
         this.latestFallbackFrame = {

@@ -1,6 +1,7 @@
 import { idbRequest, idbTx, openDb } from "../utils/idb.js";
+import { IDB_DATABASES } from "../utils/storageKeys.js";
 
-const DB_NAME = "apple2_save_states";
+const DB_NAME = IDB_DATABASES.saveStates;
 const STORE_NAME = "states";
 
 export interface SaveStateEntry {
@@ -16,7 +17,7 @@ function stateDb(): Promise<IDBDatabase> {
   return openDb(DB_NAME, STORE_NAME, { keyPath: "id" });
 }
 
-export function stateId(slot: number): string {
+function stateId(slot: number): string {
   return `slot_${slot}`;
 }
 

@@ -1,3 +1,5 @@
+import { LS_KEYS } from "../utils/storageKeys.js";
+
 export type PaddleDirection = "left" | "right" | "up" | "down" | "fire" | "fire2";
 
 export const PADDLE_DIRECTIONS: PaddleDirection[] = ["left", "right", "up", "down", "fire", "fire2"];
@@ -11,8 +13,8 @@ export const DEFAULT_PADDLE_KEY_BINDINGS: Record<PaddleDirection, string> = {
   fire2: "ControlLeft",
 };
 
-const TYPE_STORAGE_KEY = "apple2_paddle_type";
-const BINDINGS_STORAGE_KEY = "apple2_paddle_bindings";
+const TYPE_STORAGE_KEY = LS_KEYS.paddleType;
+const BINDINGS_STORAGE_KEY = LS_KEYS.paddleBindings;
 
 export type PaddleInputType = "none" | "gamepad" | "keys";
 
