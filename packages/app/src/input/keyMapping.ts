@@ -28,7 +28,12 @@ export function keyEventToAscii(e: KeyboardEvent): number | null {
   }
   const special = SPECIAL_CODES[e.code];
   if (special !== undefined) return special;
-  if (e.key.length === 1) return e.key.charCodeAt(0) & 0x7f;
+  if (e.key.length === 1) {
+    // A real Apple II keyboard has no lowercase: every letter key latches
+    // uppercase ASCII. Games like Lode Runner compare against uppercase
+    // codes, so unshifted browser letters must uppercase to match hardware.
+    return e.key.toUpperCase().charCodeAt(0) & 0x7f;
+  }
   return null;
 }
 

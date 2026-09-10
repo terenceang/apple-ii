@@ -6,9 +6,15 @@ const ev = (e: FakeEvent) => keyEventToAscii(e as KeyboardEvent);
 
 describe("keyEventToAscii", () => {
   it("passes single printable characters through as their ASCII code", () => {
-    expect(ev({ code: "KeyA", key: "a" })).toBe(0x61);
     expect(ev({ code: "Digit1", key: "1" })).toBe(0x31);
     expect(ev({ code: "Space", key: " " })).toBe(0x20); // key length 1 beats special-code map
+  });
+
+  it("uppercases letter keys — a real Apple II keyboard has no lowercase", () => {
+    expect(ev({ code: "KeyA", key: "a" })).toBe(0x41);
+    expect(ev({ code: "KeyI", key: "i" })).toBe(0x49);
+    expect(ev({ code: "KeyZ", key: "z" })).toBe(0x5a);
+    expect(ev({ code: "KeyA", key: "A" })).toBe(0x41); // caps lock / shift: same code
   });
 
   it("maps control+letter to the matching control code (0x01-0x1a)", () => {

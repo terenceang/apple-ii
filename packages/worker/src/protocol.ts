@@ -29,14 +29,17 @@ export type HostToWorkerMessage =
   | { type: "reset" }
   | { type: "nmi" }
   | { type: "saveState" }
-  | { type: "loadState"; data: ArrayBuffer };
+  | { type: "loadState"; data: ArrayBuffer }
+  | { type: "exportDisk"; drive?: number };
 
 export type WorkerToHostMessage =
   | { type: "ready" }
   | { type: "frame"; pixels: ArrayBuffer; width: number; height: number; audio: ArrayBuffer }
   | { type: "diskStatus"; drive: number; inserted: boolean; motorOn: boolean; track: number }
   | { type: "error"; message: string }
-  | { type: "stateData"; data: ArrayBuffer };
+  | { type: "stateData"; data: ArrayBuffer }
+  /** Replies to exportDisk. Empty data means no disk is inserted in that drive. */
+  | { type: "diskData"; drive: number; format: DiskFormat; data: ArrayBuffer };
 
 export const STEREO_SAMPLES_PER_FRAME = SAMPLES_PER_FRAME * AUDIO_CHANNELS;
 export const AUDIO_CAPACITY_SAMPLES = DEFAULT_SAMPLE_RATE;

@@ -11,6 +11,7 @@ export async function clearAllClientStorage(): Promise<void> {
     "apple2_right_tab",
     "apple2_paddle_type",
     "apple2_paddle_bindings",
+    "apple2_mcp_enabled",
   ];
   for (const key of keysToRemove) {
     localStorage.removeItem(key);

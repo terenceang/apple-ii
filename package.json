@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "dev": "npm run build --workspace=@apple2/mcp-server && node packages/mcp-server/dist/index.js & npm run dev --workspace=@apple2/app",
-    "build": "npm run build --workspace=@apple2/core && npm run build --workspace=@apple2/worker && npm run build --workspace=@apple2/app && npm run build --workspace=@apple2/mcp-server",
+    "build": "npm run build --workspace=@apple2/core && npm run build --workspace=@apple2/worker && npm run build --workspace=@apple2/app && npm run build --workspace=@apple2/mcp-server && npm run build --workspace=@apple2/server",
+    "serve": "npm run build && node packages/server/dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:all": "npm run typecheck && npm run lint && vitest run",

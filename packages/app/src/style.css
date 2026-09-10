@@ -298,11 +298,22 @@ body.controls-open .app-container {
   display: flex;
   flex-direction: column;
   transform: translateX(-100%);
-  transition: transform 0.25s ease;
+  visibility: hidden;
+  transition:
+    transform 0.25s ease,
+    visibility 0s 0.25s;
 }
 
 .tape-library-panel.open {
   transform: translateX(0);
+  visibility: visible;
+  transition: transform 0.25s ease;
+}
+
+.tape-library-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .tape-library-header {
@@ -435,15 +446,6 @@ body.controls-open .app-container {
   background: var(--accent-subtle);
 }
 
-.tape-library-transport {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 0.9rem;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
 .tape-library-filter {
   display: flex;
   align-items: center;
@@ -493,29 +495,6 @@ body.controls-open .app-container {
   flex: 1;
 }
 
-.tape-library-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.6rem 0.9rem;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.tape-player-section {
-  flex-shrink: 0;
-}
-
-.tape-player-header {
-  padding: 0.75rem 0.9rem 0.4rem;
-}
-
-.tape-player-status {
-  padding: 0 0.9rem 0.5rem;
-  color: var(--text-secondary);
-  font-size: 0.78rem;
-}
-
 .tape-library-section {
   display: flex;
   flex-direction: column;
@@ -535,11 +514,29 @@ body.controls-open .app-container {
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
-  transition: transform 0.25s ease;
+  visibility: hidden;
+  transition:
+    transform 0.25s ease,
+    visibility 0s 0.25s;
 }
 
 .controls-panel.open {
   transform: translateX(0);
+  visibility: visible;
+  transition: transform 0.25s ease;
+}
+
+.controls-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.controls-panel-header .section-label {
+  font-family: var(--font-mono);
 }
 
 .controls-panel-body {
@@ -561,13 +558,6 @@ body.controls-open .app-container {
 .controls-panel-group + .controls-panel-group {
   padding-top: 0.9rem;
   border-top: 1px solid var(--border-subtle);
-}
-
-.control-group-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  width: 100%;
 }
 
 .controls-panel-group .control-group {
@@ -785,12 +775,11 @@ body.controls-open .panel-tabs-right {
     padding-right: 1.25rem;
   }
 
-  body.library-open .panel-tabs-left {
-    left: 100%;
-  }
-
+  /* The toggle tabs would sit off-screen behind the full-width panel; the
+     in-panel close buttons are the way out on mobile. */
+  body.library-open .panel-tabs-left,
   body.controls-open .panel-tabs-right {
-    right: 100%;
+    display: none;
   }
 }
 
@@ -799,16 +788,6 @@ body.controls-open .panel-tabs-right {
   font-size: 0.75rem;
   color: var(--text-secondary);
   text-align: center;
-}
-
-.modal-footer {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: center;
-}
-
-.modal-footer .btn {
-  min-width: 6rem;
 }
 
 .emulator-panel {
@@ -918,26 +897,6 @@ body.controls-open .panel-tabs-right {
   text-overflow: ellipsis;
 }
 
-.control-checkbox {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-  cursor: pointer;
-  user-select: none;
-}
-
-.control-checkbox input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.control-checkbox input[type="checkbox"] {
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
 .volume-group {
   display: inline-flex;
   align-items: center;
@@ -956,29 +915,6 @@ body.controls-open .panel-tabs-right {
 
 .btn-icon svg {
   display: block;
-}
-
-.btn-accent.playing {
-  background: #ff5555;
-  border-color: #ff5555;
-  color: #fff;
-  animation: pulse-glow 1.5s infinite ease-in-out;
-}
-
-.btn-accent.playing:hover {
-  background: #ff3333;
-  border-color: #ff3333;
-  color: #fff;
-}
-
-@keyframes pulse-glow {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.75;
-  }
 }
 
 .volume-slider {
@@ -1039,21 +975,6 @@ body.controls-open .panel-tabs-right {
   min-width: 2.1rem;
   font-family: var(--font-mono);
   user-select: none;
-}
-
-.action-buttons {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
-}
-
-@media (max-width: 640px) {
-  .action-buttons {
-    margin-left: 0;
-    width: 100%;
-    justify-content: flex-end;
-  }
 }
 
 .btn {
@@ -1120,6 +1041,25 @@ body.controls-open .panel-tabs-right {
   align-items: center;
   gap: 0.4rem;
   margin-right: auto;
+}
+
+/* One pill per drive: framed + green-tinted while a disk is inserted, so the
+   toolbar distinguishes "loaded" from the LED's momentary motor activity. */
+.drive-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.22rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.drive-badge.loaded {
+  border-color: rgba(92, 158, 98, 0.5);
+  background: var(--green-bg);
 }
 
 .screen-frame {
@@ -1323,6 +1263,7 @@ canvas#screen {
 .modal-footer {
   padding: 0 1.5rem 1.5rem;
   display: flex;
+  gap: 0.75rem;
   justify-content: center;
 }
 
@@ -1349,6 +1290,22 @@ canvas#screen {
   color: var(--apple-red);
 }
 
+#server-modal {
+  z-index: 200;
+}
+
+.server-modal-hint {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+body.server-offline > :not(.modal-overlay) {
+  pointer-events: none;
+  user-select: none;
+}
+
 .floppy-drive-section {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
@@ -1356,6 +1313,15 @@ canvas#screen {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* A disk is sitting in this drive: frame the section like a loaded slot. */
+.floppy-drive-section.has-disk {
+  background: var(--green-bg);
+  box-shadow: inset 0 0 0 1px rgba(92, 158, 98, 0.45);
 }
 
 .floppy-drive-header {
@@ -1489,22 +1455,6 @@ canvas#screen {
   flex-direction: column;
   gap: 0.4rem;
   width: 100%;
-}
-
-.slot-btn-row {
-  display: flex;
-  gap: 0.35rem;
-  width: 100%;
-}
-
-.controls-panel-group .slot-btn-row .btn {
-  flex: 1;
-  width: auto;
-  height: 32px;
-  padding: 0 0.25rem;
-  font-size: 0.72rem;
-  gap: 0.3rem;
-  justify-content: center;
 }
 
 .controls-panel-group .control-file-btn {

@@ -1,4 +1,4 @@
-import { AppleIIe, type CpuKind, loadState as applyState, parseDsk, saveState } from "@apple2/core";
+import { AppleIIe, type CpuKind, loadState as applyState, parseDsk, saveState, writeDsk } from "@apple2/core";
 import { AudioRing, FrameRingWriter } from "./ring-buffers.js";
 import {
   AUDIO_CAPACITY_FLOATS,
@@ -191,6 +191,18 @@ self.onmessage = (event: MessageEvent<HostToWorkerMessage>) => {
     case "loadState": {
       applyState(machine, new Uint8Array(message.data));
       start();
+      break;
+    }
+    case "exportDisk": {
+      const drive = message.drive ?? 0;
+      const image = machine.getDisk(drive);
+      if (image) {
+        const bytes = writeDsk(image);
+        const buffer = bytes.buffer as ArrayBuffer;
+        post({ type: "diskData", drive, format: image.format, data: buffer }, [buffer]);
+      } else {
+        post({ type: "diskData", drive, format: "dsk", data: new ArrayBuffer(0) });
+      }
       break;
     }
   }

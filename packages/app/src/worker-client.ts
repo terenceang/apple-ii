@@ -11,6 +11,7 @@ import {
 import { FrameRingReader } from "../../worker/src/ring-buffers.js";
 
 export type Frame = { pixels: Uint8Array; width: number; height: number };
+export type ExportedDisk = { format: DiskFormat; data: ArrayBuffer };
 
 export class EmulatorClient {
   private readonly worker: Worker;
@@ -23,6 +24,7 @@ export class EmulatorClient {
   private latestFallbackAudio: Float32Array | null = null;
   private fallbackFrameCount = 0;
   private readonly pendingStateRequests: ((data: ArrayBuffer) => void)[] = [];
+  private readonly pendingDiskRequests: ((disk: ExportedDisk | null) => void)[] = [];
 
   onReady?: () => void;
   onError?: (message: string) => void;
@@ -69,6 +71,11 @@ export class EmulatorClient {
         this.latestFallbackAudio = new Float32Array(message.audio);
       } else if (message.type === "stateData") {
         this.pendingStateRequests.shift()?.(message.data);
+      } else if (message.type === "diskData") {
+        const resolve = this.pendingDiskRequests.shift();
+        if (resolve) {
+          resolve(message.data.byteLength === 0 ? null : { format: message.format, data: message.data });
+        }
       }
     };
 
@@ -129,6 +136,14 @@ export class EmulatorClient {
 
   loadState(data: ArrayBuffer): void {
     this.send({ type: "loadState", data }, [data]);
+  }
+
+  /** Returns the live (possibly written-to) disk image bytes, or null if the drive is empty. */
+  exportDisk(drive = 0): Promise<ExportedDisk | null> {
+    return new Promise((resolve) => {
+      this.pendingDiskRequests.push(resolve);
+      this.send({ type: "exportDisk", drive });
+    });
   }
 
   pollFrame(): Frame | null {

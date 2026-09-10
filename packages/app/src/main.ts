@@ -64,6 +64,12 @@ const diskFileInput = document.getElementById("disk-file-input") as HTMLInputEle
 const diskFileText = document.getElementById("disk-file-text") as HTMLSpanElement | null;
 const diskEjectBtn = document.getElementById("disk-eject-btn") as HTMLButtonElement | null;
 const diskExportBtn = document.getElementById("disk-export-btn") as HTMLButtonElement | null;
+const floppyDriveSection = document.getElementById(
+  "floppy-drive-section",
+) as HTMLDivElement | null;
+const screenDriveBadge1 = document.getElementById(
+  "screen-drive-badge-1",
+) as HTMLSpanElement | null;
 
 const floppyLed2 = document.getElementById("floppy-led-2") as HTMLSpanElement | null;
 const screenFloppyLed2 = document.getElementById("screen-floppy-led-2") as HTMLSpanElement | null;
@@ -72,6 +78,12 @@ const diskFileInput2 = document.getElementById("disk-file-input-2") as HTMLInput
 const diskFileText2 = document.getElementById("disk-file-text-2") as HTMLSpanElement | null;
 const diskEjectBtn2 = document.getElementById("disk-eject-btn-2") as HTMLButtonElement | null;
 const diskExportBtn2 = document.getElementById("disk-export-btn-2") as HTMLButtonElement | null;
+const floppyDriveSection2 = document.getElementById(
+  "floppy-drive-section-2",
+) as HTMLDivElement | null;
+const screenDriveBadge2 = document.getElementById(
+  "screen-drive-badge-2",
+) as HTMLSpanElement | null;
 
 const saveStateSlots = document.getElementById("save-state-slots") as HTMLDivElement | null;
 const stateThumbnail = document.getElementById("state-thumbnail") as HTMLDivElement | null;
@@ -113,6 +125,12 @@ const controlsInputToggle = document.getElementById(
 const controlsSystemToggle = document.getElementById(
   "controls-system-toggle",
 ) as HTMLButtonElement | null;
+const diskLibraryCloseBtn = document.getElementById(
+  "disk-library-close-btn",
+) as HTMLButtonElement | null;
+const controlsPanelCloseBtn = document.getElementById(
+  "controls-panel-close-btn",
+) as HTMLButtonElement | null;
 const fpsVal = document.getElementById("fps-val") as HTMLSpanElement | null;
 const logContainer = document.getElementById("log-container") as HTMLDivElement | null;
 const logEntriesEl = document.getElementById("log-entries") as HTMLDivElement | null;
@@ -152,6 +170,12 @@ const modalRomText = document.getElementById("modal-rom-text") as HTMLSpanElemen
 const modalStartBtn = document.getElementById("modal-start-btn") as HTMLButtonElement;
 const modalCancelBtn = document.getElementById("modal-cancel-btn") as HTMLButtonElement | null;
 const modalError = document.getElementById("modal-error") as HTMLDivElement;
+
+const serverModal = document.getElementById("server-modal") as HTMLDivElement;
+const serverModalHint = document.getElementById("server-modal-hint") as HTMLParagraphElement;
+const serverModalRetryBtn = document.getElementById(
+  "server-modal-retry-btn",
+) as HTMLButtonElement;
 
 let modalRomData: ArrayBuffer | null = null;
 let modalRomFilename = "";
@@ -216,6 +240,18 @@ let activeRightTab: RightTab =
 let pendingDiskEntry: DiskEntry | null = null;
 let libraryFilterText = "";
 const selectedDiskIds = new Set<string>();
+
+/**
+ * Single source of truth for the paused flag: syncs the worker, refreshes the
+ * UI, and (via the always-running frame loop) guarantees video keeps flowing
+ * once unpaused. Never assign `paused` directly.
+ */
+function setPaused(value: boolean): void {
+  paused = value;
+  if (paused) client.pause();
+  else client.resume();
+  updatePauseUi();
+}
 
 function setLeftTab(tab: "disks" | "snapshots"): void {
   activeLeftTab = tab;
@@ -364,8 +400,17 @@ async function ensureAudioStarted(): Promise<void> {
   await audio.resume();
 }
 
+function openModal(el: HTMLElement): void {
+  el.style.display = "flex";
+  el.querySelector<HTMLButtonElement>(".modal-footer button:not([disabled])")?.focus();
+}
+
+function closeModal(el: HTMLElement): void {
+  el.style.display = "none";
+}
+
 function showSetupModal(): void {
-  setupModal.style.display = "flex";
+  openModal(setupModal);
   modalRomData = null;
   modalRomFilename = "";
   modalRomInput.value = "";
@@ -376,8 +421,24 @@ function showSetupModal(): void {
 }
 
 function hideSetupModal(): void {
-  setupModal.style.display = "none";
+  closeModal(setupModal);
 }
+
+// Clicking the dark overlay (not the dialog itself) dismisses the modal.
+function wireModalBackdrop(modal: HTMLElement, onClose: () => void): void {
+  modal.addEventListener("pointerdown", (e) => {
+    if (e.target === modal) onClose();
+  });
+}
+
+wireModalBackdrop(setupModal, () => {
+  if (romLoaded) hideSetupModal();
+});
+wireModalBackdrop(confirmLoadModal, () => {
+  closeModal(confirmLoadModal);
+  pendingDiskEntry = null;
+});
+wireModalBackdrop(paddleModal, () => closeModal(paddleModal));
 
 function updateRomUi(filename?: string): void {
   if (!romFileText) return;
@@ -439,14 +500,70 @@ function formatRomFilename(files: File[]): string {
 const lastLoggedMotorOn = [false, false];
 const lastLoggedTrack = [-1, -1];
 
+/** Reflects a disk insert into both drive sections' filename/eject/state UI. */
+function markDriveLoaded(drive: 0 | 1, filename: string): void {
+  if (drive === 1) {
+    diskLoaded2 = true;
+    diskFilename2 = filename;
+    if (diskFileText2) diskFileText2.textContent = filename;
+    if (diskEjectBtn2) diskEjectBtn2.disabled = false;
+    floppyDriveSection2?.classList.add("has-disk");
+    if (screenDriveBadge2) {
+      screenDriveBadge2.classList.add("loaded");
+      screenDriveBadge2.title = `Drive 2 — loaded: ${filename}`;
+    }
+  } else {
+    diskLoaded = true;
+    diskFilename1 = filename;
+    if (diskFileText) diskFileText.textContent = filename;
+    if (diskEjectBtn) diskEjectBtn.disabled = false;
+    floppyDriveSection?.classList.add("has-disk");
+    if (screenDriveBadge1) {
+      screenDriveBadge1.classList.add("loaded");
+      screenDriveBadge1.title = `Drive 1 — loaded: ${filename}`;
+    }
+  }
+}
+
+/** Resets a drive section to the empty state (text, input, eject, LEDs, status). */
+function clearDriveUi(drive: 0 | 1): void {
+  if (drive === 1) {
+    diskLoaded2 = false;
+    diskFilename2 = "";
+    if (diskFileText2) diskFileText2.textContent = "Insert Disk…";
+    if (diskFileInput2) diskFileInput2.value = "";
+    if (diskEjectBtn2) diskEjectBtn2.disabled = true;
+    if (floppyLed2) floppyLed2.classList.remove("active");
+    if (screenFloppyLed2) screenFloppyLed2.classList.remove("active");
+    if (floppyStatusText2) floppyStatusText2.textContent = "No disk inserted";
+    floppyDriveSection2?.classList.remove("has-disk");
+    if (screenDriveBadge2) {
+      screenDriveBadge2.classList.remove("loaded");
+      screenDriveBadge2.title = "Drive 2 — empty";
+    }
+  } else {
+    diskLoaded = false;
+    diskFilename1 = "";
+    if (diskFileText) diskFileText.textContent = "Insert Disk…";
+    if (diskFileInput) diskFileInput.value = "";
+    if (diskEjectBtn) diskEjectBtn.disabled = true;
+    if (floppyLed) floppyLed.classList.remove("active");
+    if (screenFloppyLed) screenFloppyLed.classList.remove("active");
+    if (floppyStatusText) floppyStatusText.textContent = "No disk inserted";
+    floppyDriveSection?.classList.remove("has-disk");
+    if (screenDriveBadge1) {
+      screenDriveBadge1.classList.remove("loaded");
+      screenDriveBadge1.title = "Drive 1 — empty";
+    }
+  }
+}
+
 client.onDiskStatus = (diskStatus) => {
-  const drive = diskStatus.drive;
-  const isDrive2 = drive === 1;
-  const led = isDrive2 ? floppyLed2 : floppyLed;
-  const screenLed = isDrive2 ? screenFloppyLed2 : screenFloppyLed;
-  const statusText = isDrive2 ? floppyStatusText2 : floppyStatusText;
-  const exportBtn = isDrive2 ? diskExportBtn2 : diskExportBtn;
-  const fileText = isDrive2 ? diskFileText2 : diskFileText;
+  const drive = diskStatus.drive as 0 | 1;
+  const led = drive === 1 ? floppyLed2 : floppyLed;
+  const screenLed = drive === 1 ? screenFloppyLed2 : screenFloppyLed;
+  const statusText = drive === 1 ? floppyStatusText2 : floppyStatusText;
+  const exportBtn = drive === 1 ? diskExportBtn2 : diskExportBtn;
 
   if (led) led.classList.toggle("active", diskStatus.motorOn);
   if (screenLed) screenLed.classList.toggle("active", diskStatus.motorOn);
@@ -455,18 +572,11 @@ client.onDiskStatus = (diskStatus) => {
       ? `Track ${diskStatus.track}${diskStatus.motorOn ? " (active)" : ""}`
       : "No disk inserted";
   }
-  if (isDrive2) {
-    diskLoaded2 = diskStatus.inserted;
-    if (!diskStatus.inserted) {
-      if (fileText) fileText.textContent = "Insert Disk…";
-      diskFilename2 = "";
-    }
+  if (diskStatus.inserted) {
+    if (drive === 1) diskLoaded2 = true;
+    else diskLoaded = true;
   } else {
-    diskLoaded = diskStatus.inserted;
-    if (!diskStatus.inserted) {
-      if (fileText) fileText.textContent = "Insert Disk…";
-      diskFilename1 = "";
-    }
+    clearDriveUi(drive);
   }
   if (exportBtn) exportBtn.disabled = !diskStatus.inserted;
 
@@ -490,34 +600,34 @@ function diskExtFromFilename(name: string): DiskFormat | null {
   return null;
 }
 
-diskFileInput?.addEventListener("change", async () => {
-  const file = diskFileInput.files?.[0];
-  if (!file) return;
+async function insertDiskFileIntoDrive(file: File, drive: 0 | 1): Promise<void> {
   const format = diskExtFromFilename(file.name);
   if (!format) {
     setStatus(`Unrecognized disk file: "${file.name}" (expected .dsk/.po)`, "warn");
     return;
   }
   const data = await file.arrayBuffer();
-  logEvent(`Loading disk "${file.name}" (${format}, ${data.byteLength} bytes) into drive 1.`, "debug");
-  await saveSessionMedia({ filename: file.name, format, data: data.slice(0) }, 0);
-  client.loadDisk(format, data, 0);
-  diskFilename1 = file.name;
-  if (diskFileText) diskFileText.textContent = file.name;
-  if (diskEjectBtn) diskEjectBtn.disabled = false;
-  setStatus(`Inserted disk "${file.name}" into drive 1.`);
+  logEvent(
+    `Loading disk "${file.name}" (${format}, ${data.byteLength} bytes) into drive ${drive + 1}.`,
+    "debug",
+  );
+  await saveSessionMedia({ filename: file.name, format, data: data.slice(0) }, drive);
+  client.loadDisk(format, data, drive);
+  markDriveLoaded(drive, file.name);
+  setStatus(`Inserted disk "${file.name}" into drive ${drive + 1}.`);
+}
+
+diskFileInput?.addEventListener("change", async () => {
+  const file = diskFileInput.files?.[0];
+  if (!file) return;
+  diskFileInput.value = "";
+  await insertDiskFileIntoDrive(file, 0);
 });
 
 diskEjectBtn?.addEventListener("click", async () => {
   logEvent("Ejecting disk from drive 1.", "debug");
   client.ejectDisk(0);
-  if (diskFileText) diskFileText.textContent = "Insert Disk…";
-  if (diskFileInput) diskFileInput.value = "";
-  if (diskEjectBtn) diskEjectBtn.disabled = true;
-  if (floppyLed) floppyLed.classList.remove("active");
-  if (screenFloppyLed) screenFloppyLed.classList.remove("active");
-  if (floppyStatusText) floppyStatusText.textContent = "No disk inserted";
-  diskFilename1 = "";
+  clearDriveUi(0);
   await saveSessionMedia(null, 0);
   setStatus("Disk ejected from drive 1.");
 });
@@ -525,46 +635,41 @@ diskEjectBtn?.addEventListener("click", async () => {
 diskFileInput2?.addEventListener("change", async () => {
   const file = diskFileInput2.files?.[0];
   if (!file) return;
-  const format = diskExtFromFilename(file.name);
-  if (!format) {
-    setStatus(`Unrecognized disk file: "${file.name}" (expected .dsk/.po)`, "warn");
-    return;
-  }
-  const data = await file.arrayBuffer();
-  logEvent(`Loading disk "${file.name}" (${format}, ${data.byteLength} bytes) into drive 2.`, "debug");
-  await saveSessionMedia({ filename: file.name, format, data: data.slice(0) }, 1);
-  client.loadDisk(format, data, 1);
-  diskFilename2 = file.name;
-  if (diskFileText2) diskFileText2.textContent = file.name;
-  if (diskEjectBtn2) diskEjectBtn2.disabled = false;
-  setStatus(`Inserted disk "${file.name}" into drive 2.`);
+  diskFileInput2.value = "";
+  await insertDiskFileIntoDrive(file, 1);
 });
 
 diskEjectBtn2?.addEventListener("click", async () => {
   logEvent("Ejecting disk from drive 2.", "debug");
   client.ejectDisk(1);
-  if (diskFileText2) diskFileText2.textContent = "Insert Disk…";
-  if (diskFileInput2) diskFileInput2.value = "";
-  if (diskEjectBtn2) diskEjectBtn2.disabled = true;
-  if (floppyLed2) floppyLed2.classList.remove("active");
-  if (screenFloppyLed2) screenFloppyLed2.classList.remove("active");
-  if (floppyStatusText2) floppyStatusText2.textContent = "No disk inserted";
-  diskFilename2 = "";
+  clearDriveUi(1);
   await saveSessionMedia(null, 1);
   setStatus("Disk ejected from drive 2.");
 });
 
-diskExportBtn2?.addEventListener("click", () => {
-  setStatus("Disk export uses the file you last inserted — re-insert after writes to capture them.", "warn");
-});
+// Round-trips through the worker: disks are deliberately excluded from save
+// states (see state.ts), and the running program may have written to the
+// image in place, so the only truthful export is the worker's live image.
+async function exportDriveImage(drive: 0 | 1): Promise<void> {
+  const result = await client.exportDisk(drive);
+  if (!result) {
+    setStatus(`No disk inserted in drive ${drive + 1}.`, "warn");
+    return;
+  }
+  const insertedName = drive === 1 ? diskFilename2 : diskFilename1;
+  const name = insertedName || `drive${drive + 1}.${result.format}`;
+  const blob = new Blob([result.data], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus(`Exported "${name}" from drive ${drive + 1} (includes writes made by running programs).`);
+}
 
-diskExportBtn?.addEventListener("click", async () => {
-  // Round-trips through the worker: request a save state's memory image isn't
-  // enough (disks aren't part of it by design — see state.ts), so instead we
-  // just re-download whatever was last inserted/loaded, which the disk
-  // controller may have mutated in place if the running program wrote to it.
-  setStatus("Disk export uses the file you last inserted — re-insert after writes to capture them.", "warn");
-});
+diskExportBtn?.addEventListener("click", () => void exportDriveImage(0));
+diskExportBtn2?.addEventListener("click", () => void exportDriveImage(1));
 
 let activeSaveStateSlot = 1;
 
@@ -637,8 +742,7 @@ async function quickLoadCurrentSlot(): Promise<void> {
   hasPoweredOn = true;
   client.loadState(entry.data.slice(0));
   setStatus(`Loaded state from slot ${activeSaveStateSlot}${entry.name ? ` (${entry.name})` : ""}.`);
-  paused = false;
-  updatePauseUi();
+  setPaused(false);
   await ensureAudioStarted();
 }
 
@@ -671,19 +775,26 @@ saveSnapshotBtn?.addEventListener("click", async () => {
   URL.revokeObjectURL(url);
 });
 
-snapshotFileInput?.addEventListener("change", async () => {
-  const file = snapshotFileInput.files?.[0];
-  if (!file) return;
+async function importSnapshotFile(file: File): Promise<void> {
+  if (!romLoaded) {
+    setStatus("Load a ROM first.", "warn");
+    return;
+  }
   const data = await file.arrayBuffer();
   hasPoweredOn = true;
   client.loadState(data.slice(0));
   await saveStateToStorage(activeSaveStateSlot, data, canvas.toDataURL("image/png"), file.name);
   await updateSaveStatePreview(activeSaveStateSlot);
-  snapshotFileInput.value = "";
-  paused = false;
-  updatePauseUi();
+  setPaused(false);
   await ensureAudioStarted();
   setStatus(`Loaded "${file.name}" into slot ${activeSaveStateSlot}.`);
+}
+
+snapshotFileInput?.addEventListener("change", async () => {
+  const file = snapshotFileInput.files?.[0];
+  if (!file) return;
+  snapshotFileInput.value = "";
+  await importSnapshotFile(file);
 });
 
 async function restoreSession(): Promise<void> {
@@ -707,17 +818,13 @@ async function restoreSession(): Promise<void> {
     const storedMedia1 = await loadSessionMedia(0);
     if (storedMedia1) {
       client.loadDisk(storedMedia1.format, storedMedia1.data.slice(0), 0);
-      diskFilename1 = storedMedia1.filename;
-      if (diskFileText) diskFileText.textContent = storedMedia1.filename;
-      if (diskEjectBtn) diskEjectBtn.disabled = false;
+      markDriveLoaded(0, storedMedia1.filename);
     }
 
     const storedMedia2 = await loadSessionMedia(1);
     if (storedMedia2) {
       client.loadDisk(storedMedia2.format, storedMedia2.data.slice(0), 1);
-      diskFilename2 = storedMedia2.filename;
-      if (diskFileText2) diskFileText2.textContent = storedMedia2.filename;
-      if (diskEjectBtn2) diskEjectBtn2.disabled = false;
+      markDriveLoaded(1, storedMedia2.filename);
     }
 
     await audio.start(client);
@@ -725,8 +832,7 @@ async function restoreSession(): Promise<void> {
     if (audio.getState() === "running") {
       hasPoweredOn = true;
       client.reset();
-      paused = false;
-      updatePauseUi();
+      setPaused(false);
       if (storedMedia1) {
         setStatus(`ROM restored (${storedRom.filename}). Loaded "${storedMedia1.filename}". Ready.`);
       } else {
@@ -734,8 +840,7 @@ async function restoreSession(): Promise<void> {
       }
     } else {
       hasPoweredOn = false;
-      paused = true;
-      updatePauseUi();
+      setPaused(true);
       setStatus("Click screen or press any key to power on.");
     }
   } else {
@@ -919,10 +1024,10 @@ function onLibraryDiskClick(entry: DiskEntry): void {
     const d2Info = diskLoaded2 ? `Drive 2: ${diskFilename2 || "inserted"}` : "Drive 2: empty";
     confirmLoadText.textContent = `Select drive to insert disk into (${d1Info} · ${d2Info}):`;
   }
-  confirmLoadModal.style.display = "flex";
+  openModal(confirmLoadModal);
 }
 
-async function loadDiskFromLibrary(drive = 0): Promise<void> {
+async function loadDiskFromLibrary(drive: 0 | 1 = 0): Promise<void> {
   const entry = pendingDiskEntry;
   if (!entry) return;
   confirmLoadModal.style.display = "none";
@@ -935,18 +1040,9 @@ async function loadDiskFromLibrary(drive = 0): Promise<void> {
     "debug",
   );
   client.loadDisk(entry.format, entry.data.slice(0), drive);
-  if (drive === 1) {
-    diskFilename2 = entry.filename;
-    if (diskFileText2) diskFileText2.textContent = entry.filename;
-    if (diskEjectBtn2) diskEjectBtn2.disabled = false;
-  } else {
-    diskFilename1 = entry.filename;
-    if (diskFileText) diskFileText.textContent = entry.filename;
-    if (diskEjectBtn) diskEjectBtn.disabled = false;
-  }
+  markDriveLoaded(drive, entry.filename);
   await saveSessionMedia({ filename: entry.filename, format: entry.format, data: entry.data.slice(0) }, drive);
-  paused = false;
-  updatePauseUi();
+  setPaused(false);
   setStatus(`Inserted "${entry.filename}" into drive ${drive + 1}${drive === 0 ? " and booting…" : "."}`);
 }
 
@@ -967,8 +1063,7 @@ async function loadRomFiles(files: File[]): Promise<void> {
   client.loadRom(data);
   client.reset();
   romLoaded = true;
-  paused = false;
-  updatePauseUi();
+  setPaused(false);
   updateRomUi(filename);
   setStatus(`ROM loaded and reset. Insert a disk to boot, or use the Monitor.`);
 }
@@ -978,14 +1073,27 @@ document.body.addEventListener("drop", async (e) => {
   e.preventDefault();
   const files = e.dataTransfer?.files;
   if (!files || files.length === 0) return;
-  const first = files[0]!;
-  const name = first.name.toLowerCase();
-  if (name.endsWith(".rom") || name.endsWith(".bin")) {
-    await loadRomFiles(Array.from(files));
-  } else if (diskExtFromFilename(first.name)) {
+  const all = Array.from(files);
+  const isRom = (f: File) => /\.(rom|bin)$/i.test(f.name);
+  const isDisk = (f: File) => diskExtFromFilename(f.name) !== null;
+  const isSnapshot = (f: File) => f.name.toLowerCase().endsWith(".a2state");
+  if (all.length === 1 && isSnapshot(all[0]!)) {
+    await importSnapshotFile(all[0]!);
+    return;
+  }
+  if (all.every(isRom)) {
+    await loadRomFiles(all);
+    return;
+  }
+  if (all.every(isDisk)) {
     await onLibraryFileSelect(files);
     setStatus("Added disk(s) to library. Click one in the library to insert it.");
+    return;
   }
+  setStatus(
+    "Drop one kind of file: ROM (.rom/.bin), disk images (.dsk/.po), or a single snapshot (.a2state).",
+    "warn",
+  );
 });
 
 modalRomInput.addEventListener("change", async () => {
@@ -1027,8 +1135,7 @@ modalStartBtn.addEventListener("click", async () => {
   client.loadRom(modalRomData);
   client.reset();
   romLoaded = true;
-  paused = false;
-  updatePauseUi();
+  setPaused(false);
   setStatus("ROM loaded and reset. Insert a disk to boot, or use the Monitor.");
   hideSetupModal();
 });
@@ -1050,10 +1157,7 @@ pauseBtn.addEventListener("click", () => {
     void onFirstGesture();
     return;
   }
-  paused = !paused;
-  if (paused) client.pause();
-  else client.resume();
-  updatePauseUi();
+  setPaused(!paused);
 });
 
 resetBtn.addEventListener("click", () => {
@@ -1064,8 +1168,7 @@ resetBtn.addEventListener("click", () => {
   void ensureAudioStarted();
   hasPoweredOn = true;
   client.reset();
-  paused = false;
-  updatePauseUi();
+  setPaused(false);
   setStatus("System reset.");
 });
 
@@ -1109,6 +1212,13 @@ controlsSystemToggle?.addEventListener("click", () => {
     setRightTab("system");
     if (!controlsOpen) toggleControls();
   }
+});
+
+diskLibraryCloseBtn?.addEventListener("click", () => {
+  if (libraryOpen) toggleLibrary();
+});
+controlsPanelCloseBtn?.addEventListener("click", () => {
+  if (controlsOpen) toggleControls();
 });
 
 diskLibraryAddBtn.addEventListener("click", () => diskLibraryInput.click());
@@ -1191,6 +1301,25 @@ paddleTypeSelect.addEventListener("change", () => {
 });
 
 let listeningDirection: PaddleDirection | null = null;
+
+function endPaddleListen(bind: string | null): void {
+  if (!listeningDirection) return;
+  if (bind) {
+    logEvent(`key ${bind} bound to paddle control "${listeningDirection}"`, "debug");
+    paddleKeyBindings[listeningDirection] = bind;
+    savePaddleKeyBindings(paddleKeyBindings);
+    renderPaddleKeyLabels();
+  }
+  const btn = paddleModal.querySelector(
+    `.joystick-bind-btn[data-direction="${listeningDirection}"]`,
+  ) as HTMLButtonElement | null;
+  if (btn) {
+    btn.classList.remove("listening");
+    btn.textContent = "Set";
+  }
+  listeningDirection = null;
+}
+
 paddleModal.querySelectorAll(".joystick-bind-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     paddleModal.querySelectorAll(".joystick-bind-btn").forEach((b) => b.classList.remove("listening"));
@@ -1200,24 +1329,27 @@ paddleModal.querySelectorAll(".joystick-bind-btn").forEach((btn) => {
   });
 });
 
+// Escape cancels a pending capture; any other key binds it (capture phase so
+// the emulator and browser shortcuts never see it).
 window.addEventListener(
   "keydown",
   (e) => {
     if (!listeningDirection) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    paddleKeyBindings[listeningDirection] = e.code;
-    savePaddleKeyBindings(paddleKeyBindings);
-    renderPaddleKeyLabels();
-    const btn = paddleModal.querySelector(`.joystick-bind-btn[data-direction="${listeningDirection}"]`) as HTMLButtonElement;
-    btn.classList.remove("listening");
-    btn.textContent = "Set";
-    listeningDirection = null;
+    endPaddleListen(e.code === "Escape" ? null : e.code);
   },
   { capture: true },
 );
 
-paddleSetupBtn?.addEventListener("click", () => (paddleModal.style.display = "flex"));
+// Clicking anywhere outside the paddle modal also cancels a pending capture.
+document.addEventListener("pointerdown", (e) => {
+  if (!listeningDirection) return;
+  if (paddleModal.contains(e.target as Node)) return;
+  endPaddleListen(null);
+});
+
+paddleSetupBtn?.addEventListener("click", () => openModal(paddleModal));
 paddleCloseBtn.addEventListener("click", () => (paddleModal.style.display = "none"));
 paddleResetBtn.addEventListener("click", () => {
   paddleKeyBindings = { ...DEFAULT_PADDLE_KEY_BINDINGS };
@@ -1238,6 +1370,10 @@ window.addEventListener("gamepaddisconnected", (e) => {
   gamepadIndex = null;
   gamepadIndicator?.classList.remove("connected");
   if (gamepadIndicatorText) gamepadIndicatorText.textContent = "Gamepad: none";
+  sendPaddle(0, 127);
+  sendPaddle(1, 127);
+  sendPb(0, false);
+  sendPb(1, false);
 });
 
 function directionForCode(code: string): PaddleDirection | null {
@@ -1287,14 +1423,14 @@ function pollPaddles(): void {
 // ---- Keyboard input (Apple II ASCII latch) ----
 
 const activeAsciiByCode = new Map<string, number>();
+let lastKeyboardHintAt = 0;
 
 async function onFirstGesture(): Promise<boolean> {
   await ensureAudioStarted();
   if (romLoaded && !hasPoweredOn) {
     hasPoweredOn = true;
     client.reset();
-    paused = false;
-    updatePauseUi();
+    setPaused(false);
     const storedRom = loadRomFromStorage();
     const storedMedia = await loadSessionMedia();
     if (storedMedia) {
@@ -1320,8 +1456,48 @@ screenFrame?.addEventListener("pointerdown", () => {
   void onFirstGesture();
 });
 
+function asciiDebug(code: number): string {
+  const hex = `$${code.toString(16).toUpperCase().padStart(2, "0")}`;
+  return code >= 0x20 && code < 0x7f ? `${hex} '${String.fromCharCode(code)}'` : hex;
+}
+
 window.addEventListener("keydown", (e) => {
-  if (isInteractiveElement(e.target)) return;
+  if (isInteractiveElement(e.target)) {
+    if (!e.repeat) logEvent(`key ${e.code} ignored — focus is in a UI field`, "debug");
+    return;
+  }
+  // Escape closes whichever modal is open (the setup gate stays up until a
+  // ROM is loaded); otherwise Escape passes through as $1B to the machine.
+  if (e.code === "Escape") {
+    if (setupModal.style.display !== "none") {
+      if (romLoaded) {
+        e.preventDefault();
+        hideSetupModal();
+      }
+      return;
+    }
+    if (paddleModal.style.display !== "none") {
+      e.preventDefault();
+      closeModal(paddleModal);
+      return;
+    }
+    if (confirmLoadModal.style.display !== "none") {
+      e.preventDefault();
+      closeModal(confirmLoadModal);
+      pendingDiskEntry = null;
+      return;
+    }
+  }
+  // With a modal overlaying the screen, keys must not reach the machine.
+  if (
+    serverModal.style.display !== "none" ||
+    setupModal.style.display !== "none" ||
+    paddleModal.style.display !== "none" ||
+    confirmLoadModal.style.display !== "none"
+  ) {
+    if (!e.repeat) logEvent(`key ${e.code} ignored — a modal is open`, "debug");
+    return;
+  }
   // Ctrl+Break / Ctrl+Pause = Ctrl+Reset
   if (e.ctrlKey && (e.code === "Break" || e.code === "Pause")) {
     e.preventDefault();
@@ -1364,9 +1540,29 @@ window.addEventListener("keydown", (e) => {
     sendPb(e.code === "AltLeft" ? 0 : 1, true);
     return;
   }
+  // The machine only reacts to keys when running code that polls the
+  // keyboard: with no disk inserted the boot ROM spins in the drive's boot
+  // PROM (like real hardware with an empty drive), and while paused no frames
+  // execute at all. Say so instead of silently swallowing keystrokes.
+  const now = performance.now();
+  if (romLoaded && now - lastKeyboardHintAt > 8000) {
+    if (paused) {
+      lastKeyboardHintAt = now;
+      setStatus("Emulation is paused — press Resume (or the Pause button) for keystrokes to register.", "warn");
+    } else if (!diskLoaded && !diskLoaded2 && hasPoweredOn) {
+      lastKeyboardHintAt = now;
+      setStatus("No disk inserted — the boot ROM is waiting on the drive. Press Reset for the BASIC prompt, or insert a disk.", "warn");
+    }
+  }
   const ascii = keyEventToAscii(e);
-  if (ascii === null) return;
+  if (ascii === null) {
+    if (!e.repeat) logEvent(`key ${e.code} ignored — no Apple II mapping`, "debug");
+    return;
+  }
   e.preventDefault();
+  if (!activeAsciiByCode.has(e.code) && !e.repeat) {
+    logEvent(`key ${e.code} -> machine ${asciiDebug(ascii)}`, "debug");
+  }
   activeAsciiByCode.set(e.code, ascii);
   client.sendKey(ascii, true);
 });
@@ -1391,6 +1587,28 @@ window.addEventListener("keyup", (e) => {
   e.preventDefault();
   activeAsciiByCode.delete(e.code);
   client.sendKey(ascii, false);
+  logEvent(`key ${e.code} released`, "debug");
+});
+
+// Release every latched key/paddle input when the tab loses focus, so a
+// keyup missed during alt-tab can't leave the machine with a stuck key.
+window.addEventListener("blur", () => {
+  for (const [code, ascii] of [...activeAsciiByCode]) {
+    client.sendKey(ascii, false);
+    activeAsciiByCode.delete(code);
+  }
+  sendPb(0, false);
+  sendPb(1, false);
+  for (const key of Object.keys(kbPaddleState) as (keyof typeof kbPaddleState)[]) {
+    kbPaddleState[key] = false;
+  }
+});
+
+// Clicked buttons blur immediately so a later Space/Enter reaches the
+// emulated machine instead of re-triggering the toolbar control.
+document.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement | null)?.closest?.("button");
+  if (btn) btn.blur();
 });
 
 // ---- Frame loop ----
@@ -1413,7 +1631,9 @@ function frameLoop(): void {
     lastFpsFrameCount = frames;
     updateFpsUi();
   }
-  if (!paused) requestAnimationFrame(frameLoop);
+  // Always keep the loop alive: while the worker is paused pollFrame simply
+  // returns null, and resuming can never strand the canvas with a dead loop.
+  requestAnimationFrame(frameLoop);
 }
 
 client.onReady = () => {
@@ -1432,30 +1652,101 @@ const mcpIndicator = document.getElementById("mcp-indicator") as HTMLDivElement;
 const mcpIndicatorText = document.getElementById("mcp-indicator-text") as HTMLSpanElement;
 
 let mcpEnabled = localStorage.getItem("apple2_mcp_enabled") === "true";
+let mcpWs: WebSocket | null = null;
+let mcpReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let mcpReconnectDelay = 2000;
+const mcpReconnectMaxDelay = 30000;
+let mcpCommandTail: Promise<void> = Promise.resolve();
 
 function setMcpConnected(connected: boolean): void {
   mcpIndicator.classList.toggle("connected", connected);
   mcpIndicatorText.textContent = `MCP: ${connected ? "connected" : mcpEnabled ? "offline" : "disabled"} (${mcpInstanceId})`;
 }
 
+function disconnectMcpBridge(): void {
+  if (mcpReconnectTimer !== null) {
+    clearTimeout(mcpReconnectTimer);
+    mcpReconnectTimer = null;
+  }
+  if (mcpWs) {
+    const ws = mcpWs;
+    mcpWs = null;
+    ws.onclose = null;
+    ws.close();
+  }
+  setMcpConnected(false);
+}
+
 function setMcpEnabled(enabled: boolean): void {
   mcpEnabled = enabled;
   localStorage.setItem("apple2_mcp_enabled", String(enabled));
   if (enabled) {
-    connectMcpBridge();
+connectMcpBridge();
+
+// ---- Server heartbeat ----
+
+const SERVER_HEARTBEAT_INTERVAL_MS = 5000;
+const SERVER_HEARTBEAT_TIMEOUT_MS = 4000;
+
+let serverOnline = true;
+let serverHeartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setServerOnline(online: boolean): void {
+  if (serverOnline === online) return;
+  serverOnline = online;
+  document.body.classList.toggle("server-offline", !online);
+  if (online) {
+    closeModal(serverModal);
+    return;
+  }
+  serverModalHint.textContent = `No response from ${window.location.origin} — retrying…`;
+  openModal(serverModal);
+}
+
+async function pollServer(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SERVER_HEARTBEAT_TIMEOUT_MS);
+  try {
+    await fetch(new URL("healthz", window.location.href), {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function heartbeat(): Promise<void> {
+  setServerOnline(await pollServer());
+  serverHeartbeatTimer = setTimeout(() => void heartbeat(), SERVER_HEARTBEAT_INTERVAL_MS);
+}
+
+serverModalRetryBtn.addEventListener("click", () => {
+  if (serverHeartbeatTimer !== null) {
+    clearTimeout(serverHeartbeatTimer);
+    serverHeartbeatTimer = null;
+  }
+  void heartbeat();
+});
+
+void heartbeat();
   } else {
-    setMcpConnected(false);
+    disconnectMcpBridge();
   }
 }
 
 mcpIndicator.style.cursor = "pointer";
 mcpIndicator.title = "Click to toggle MCP bridge";
 mcpIndicator.addEventListener("click", () => setMcpEnabled(!mcpEnabled));
+setMcpConnected(false);
 
 async function handleMcpCommand(message: McpBridgeCommand): Promise<unknown> {
   switch (message.cmd) {
     case "getStatus":
-      return { romLoaded, paused, diskLoaded };
+      return { romLoaded, paused, diskLoaded, diskLoaded2 };
     case "readScreen":
       return { pngBase64: canvas.toDataURL("image/png").split(",")[1] };
     case "saveSnapshot": {
@@ -1466,23 +1757,33 @@ async function handleMcpCommand(message: McpBridgeCommand): Promise<unknown> {
     case "loadRom":
       client.loadRom(base64ToArrayBuffer(message.romBase64));
       client.reset();
-      client.resume();
       romLoaded = true;
+      hasPoweredOn = true;
+      setPaused(false);
       return null;
     case "loadSnapshot":
+      hasPoweredOn = true;
       client.loadState(base64ToArrayBuffer(message.dataBase64));
+      setPaused(false);
       return null;
     case "loadDisk": {
       const data = base64ToArrayBuffer(message.dataBase64);
       const drive = (message.drive ?? 1) - 1;
       logEvent(`[MCP] Loading disk (${message.format}, ${data.byteLength} bytes) into drive ${drive + 1}.`, "debug");
       client.loadDisk(message.format, data, drive);
+      markDriveLoaded(drive as 0 | 1, `disk.${message.format}`);
+      await saveSessionMedia(
+        { filename: `disk.${message.format}`, format: message.format, data: data.slice(0) },
+        drive,
+      );
       return null;
     }
     case "ejectDisk": {
       const drive = (message.drive ?? 1) - 1;
       logEvent(`[MCP] Ejecting disk from drive ${drive + 1}.`, "debug");
       client.ejectDisk(drive);
+      clearDriveUi(drive as 0 | 1);
+      await saveSessionMedia(null, drive);
       return null;
     }
     case "reset":
@@ -1520,26 +1821,25 @@ document.querySelectorAll<HTMLButtonElement>("button[data-macro]").forEach((btn)
   });
 });
 
-let mcpReconnectDelay = 2000;
-const mcpReconnectMaxDelay = 30000;
-
 function connectMcpBridge(): void {
-  if (!mcpEnabled) return;
+  if (!mcpEnabled || mcpWs) return;
   const ws = new WebSocket(`ws://localhost:${MCP_BRIDGE_PORT}`);
+  mcpWs = ws;
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "hello", instanceId: mcpInstanceId }));
     setMcpConnected(true);
     mcpReconnectDelay = 2000;
   };
   ws.onclose = () => {
+    if (mcpWs === ws) mcpWs = null;
     setMcpConnected(false);
     if (mcpEnabled) {
-      setTimeout(connectMcpBridge, mcpReconnectDelay);
+      mcpReconnectTimer = setTimeout(connectMcpBridge, mcpReconnectDelay);
       mcpReconnectDelay = Math.min(mcpReconnectDelay * 2, mcpReconnectMaxDelay);
     }
   };
-  let mcpCommandTail: Promise<void> = Promise.resolve();
   ws.onmessage = (event) => {
+    if (mcpWs !== ws) return;
     const message = JSON.parse(event.data as string) as McpBridgeCommand;
     mcpCommandTail = mcpCommandTail.then(() => handleMcpCommand(message)).then(
       (result) => ws.send(JSON.stringify({ reqId: message.reqId, ok: true, result })),

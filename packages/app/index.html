@@ -117,28 +117,42 @@
         <div class="tape-library-section">
           <div class="tape-library-header">
             <span class="tape-library-title">Disk Library</span>
-            <button
-              id="disk-library-add-btn"
-              class="btn"
-              type="button"
-              title="Add disk to library"
-              aria-label="Add disk"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+            <div class="tape-library-header-actions">
+              <button
+                id="disk-library-add-btn"
+                class="btn"
+                type="button"
+                title="Add disk to library"
+                aria-label="Add disk"
               >
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              <span>Add</span>
-            </button>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                <span>Add</span>
+              </button>
+              <button
+                id="disk-library-close-btn"
+                class="btn btn-icon"
+                type="button"
+                title="Close panel"
+                aria-label="Close Disks panel"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div class="tape-library-filter">
@@ -296,6 +310,21 @@
     </div>
 
     <aside id="controls-panel" class="controls-panel" aria-label="Controls">
+      <div class="controls-panel-header">
+        <span class="section-label">CONTROLS</span>
+        <button
+          id="controls-panel-close-btn"
+          class="btn btn-icon"
+          type="button"
+          title="Close panel"
+          aria-label="Close Controls panel"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
       <div id="panel-controls-machine-tab" class="panel-tab-content controls-panel-body">
         <div class="controls-panel-group">
           <span class="section-label">MACHINE</span>
@@ -459,9 +488,9 @@
     </aside>
 
     <div id="confirm-load-modal" class="modal-overlay" style="display: none">
-      <div class="modal">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-load-title">
         <div class="modal-header">
-          <h2 class="modal-title">Insert Disk</h2>
+          <h2 class="modal-title" id="confirm-load-title">Insert Disk</h2>
           <p class="modal-subtitle" id="confirm-load-name"></p>
         </div>
         <div class="modal-body">
@@ -488,10 +517,14 @@
       <div class="emulator-panel">
         <div class="screen-toolbar">
           <div class="screen-drive-indicator" title="Disk Drive Activity">
-            <span id="screen-floppy-led" class="drive-led"></span>
-            <span class="section-label">DRV 1</span>
-            <span id="screen-floppy-led-2" class="drive-led" style="margin-left: 0.35rem"></span>
-            <span class="section-label">DRV 2</span>
+            <span id="screen-drive-badge-1" class="drive-badge" title="Drive 1 — empty">
+              <span id="screen-floppy-led" class="drive-led"></span>
+              <span class="section-label">DRV 1</span>
+            </span>
+            <span id="screen-drive-badge-2" class="drive-badge" title="Drive 2 — empty">
+              <span id="screen-floppy-led-2" class="drive-led"></span>
+              <span class="section-label">DRV 2</span>
+            </span>
           </div>
 
           <button id="pause-btn" class="btn" type="button" title="Pause emulation" aria-label="Pause/Resume">
@@ -565,7 +598,7 @@
     </main>
 
     <div id="setup-modal" class="modal-overlay" style="display: none">
-      <div class="modal">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="ROM Setup">
         <div class="modal-header">
           <h2 class="modal-title">Apple //e</h2>
           <p class="modal-subtitle">Load a ROM to begin</p>
@@ -599,7 +632,7 @@
     </div>
 
     <div id="paddle-modal" class="modal-overlay" style="display: none">
-      <div class="modal">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Paddle Setup">
         <div class="modal-header">
           <h2 class="modal-title">Paddle Setup</h2>
           <p class="modal-subtitle">
@@ -642,6 +675,21 @@
         <div class="modal-footer">
           <button id="paddle-reset-btn" class="btn" type="button">Reset to Defaults</button>
           <button id="paddle-close-btn" class="btn btn-accent" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="server-modal" class="modal-overlay" style="display: none">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="Server Connection">
+        <div class="modal-header">
+          <h2 class="modal-title">Not Connected</h2>
+          <p class="modal-subtitle">This page is disabled until it reconnects to the server.</p>
+        </div>
+        <div class="modal-body">
+          <p id="server-modal-hint" class="server-modal-hint">Connecting…</p>
+        </div>
+        <div class="modal-footer">
+          <button id="server-modal-retry-btn" class="btn btn-accent" type="button">Retry Now</button>
         </div>
       </div>
     </div>
